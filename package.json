@@ -1,0 +1,76 @@
+{
+  "name": "genbot",
+  "version": "1.0.0",
+  "description": "Generational Bot",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LawrenceTanny/ZoomBot.git"
+  },
+  "author": "Geneca Brito",
+  "license": "ISC",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "publish": "electron-builder --publish always",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist-all": "npm run dist:linux && npm run dist:win && npm run dist:mac"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.1.4",
+    "express": "^4.18.2",
+    "googleapis": "^126.0.1"
+  },
+  "devDependencies": {
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0"
+  },
+  "build": {
+    "appId": "com.genbot.app",
+    "productName": "GenBot",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "LawrenceTanny",
+        "repo": "ZoomBot"
+      }
+    ],
+    "directories": {
+      "output": "dist/${os}/${arch}"
+    },
+    "files": [
+      "**/*",
+      "!secrets.env",
+      "!google_credentials.json",
+      "!oauth_credentials.json",
+      "!zoom_token.json",
+      "!completed_log.json",
+      "!app_config.json",
+      "!brandfinder.js",
+      "!checker.js",
+      "!auth.js",
+      "!dist",
+      "!build",
+      "!*.log",
+      "!*.md"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "app.ico"
+    },
+    "mac": {
+      "target": "zip",
+      "icon": "app.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "app.png",
+      "category": "Utility"
+    }
+  }
+}

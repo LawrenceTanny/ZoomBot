@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GenBot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">GenBot <span>v1.0.1</span></div>
+            <nav>
+                <button id="startBtn" class="nav-btn primary">▶ Start Bot</button>
+                <button id="stopBtn" class="nav-btn danger">■ Stop Bot</button>
+                <hr>
+                <button id="exportBtn" class="nav-btn secondary">📂 Export Logs</button>
+                <button id="clearBtn" class="nav-btn secondary">🧹 Clear Screen</button>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header>
+                <div id="statusIndicator" class="status-idle">Status: <span>Idle</span></div>
+            </header>
+            <div id="terminal" class="terminal-box">
+                <div class="log-line system">Waiting for startup...</div>
+                <br></br>
+            </div>
+        </main>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html>

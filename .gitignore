@@ -1,0 +1,16 @@
+# --- SENSITIVE SECRETS ---
+secrets.env
+google_credentials.json
+oauth_credentials.json
+zoom_token.json
+app_config.json
+completed_log.json
+
+# --- JUNK & BUILD FILES ---
+node_modules/
+dist/
+.DS_Store
+package-lock.json
+brandfinder.js
+checker.js
+auth.js

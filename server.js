@@ -71,6 +71,35 @@ const IGNORE_TOPICS = APP_CONFIG.ignore_topics || [];
 let FIELD_MAP = { internal: null, member: null };
 let CLICKUP_CACHE = []; 
 
+// --- 🛠️ HELPER FUNCTIONS (NEW) ---
+
+// 1. Delay helper (Rate Limiter)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// 2. Atomic Write (Prevents "Unterminated string" corruption)
+function safeSave(filePath, data) {
+    const tempPath = filePath + ".tmp"; 
+    try {
+        fs.writeFileSync(tempPath, JSON.stringify(data, null, 2));
+        fs.renameSync(tempPath, filePath); // Atomic replace
+    } catch (err) {
+        console.error("❌ Safe Save Failed:", err.message);
+    }
+}
+
+// 3. Auto-Retry Wrapper
+async function fetchWithRetry(operation, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await operation();
+        } catch (err) {
+            if (i === retries - 1) throw err; 
+            console.log(`      ⚠️ API Hiccup... Retrying (${i + 1}/${retries}) in 2s...`);
+            await delay(2000); 
+        }
+    }
+}
+
 function getFormattedDate(dateString) {
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const d = new Date(dateString);
@@ -88,7 +117,8 @@ async function syncLogsWithDrive() {
 
     try {
         const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
-        const res = await drive.files.list({ q, fields: 'files(id)' });
+        // Wrapped in retry
+        const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
 
         if (res.data.files.length > 0) {
             const fileId = res.data.files[0].id;
@@ -108,9 +138,11 @@ async function syncLogsWithDrive() {
             const combinedLog = [...localLog, ...cloudLog];
             const uniqueLog = Array.from(new Map(combinedLog.map(item => [item['uuid'], item])).values());
 
-            fs.writeFileSync(paths.log.ext, JSON.stringify(uniqueLog, null, 2));
+            // Use Safe Save here
+            safeSave(paths.log.ext, uniqueLog);
+            
             console.log(`      ✅ Sync Complete! Total records: ${uniqueLog.length}`);
-            fs.unlinkSync(destPath);
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
         } else {
             console.log("      ⚠️ No backup found in Drive. Starting with local log only.");
         }
@@ -127,7 +159,8 @@ async function backupLogToDrive() {
 
     try {
         const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
-        const res = await drive.files.list({ q, fields: 'files(id)' });
+        const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+        
         const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
 
         if (res.data.files.length > 0) {
@@ -178,6 +211,7 @@ async function getZoomAccessToken() {
     return tokenData.access_token;
 }
 
+// 4. UPDATED SAVE TO LOG (Using SafeSave)
 function saveToLog(newData) {
     let currentLog = [];
     if (fs.existsSync(paths.log.ext)) {
@@ -186,7 +220,9 @@ function saveToLog(newData) {
     const index = currentLog.findIndex(item => item.uuid === newData.uuid);
     if (index !== -1) currentLog[index] = { ...currentLog[index], ...newData };
     else currentLog.push(newData);
-    fs.writeFileSync(paths.log.ext, JSON.stringify(currentLog, null, 2));
+    
+    // Use Safe Save to prevent corruption
+    safeSave(paths.log.ext, currentLog);
 }
 
 async function markZoomComplete(meetingId, currentTopic, token) {
@@ -194,7 +230,7 @@ async function markZoomComplete(meetingId, currentTopic, token) {
     try {
         const safeId = encodeURIComponent(meetingId);
         await axios.patch(`https://api.zoom.us/v2/meetings/${safeId}`, { topic: `${currentTopic} ✅` }, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
-    } catch (e) { /* Ignore for now hehe*/ }
+    } catch (e) { /* Ignore for now */ }
 }
 
 async function deleteZoomRecording(meetingId, token) {
@@ -320,12 +356,20 @@ async function checkZoom() {
 
         for (const user of users) {
             if (IGNORE_EMAILS.includes(user.email)) continue;
+            
+            // Add slight delay between users to avoid hammering Zoom
+            await delay(500);
+
             for (let i = 0; i < SCAN_MONTHS_BACK; i++) {
                 let toDate = new Date(); toDate.setMonth(toDate.getMonth() - i);
                 let fromDate = new Date(); fromDate.setMonth(fromDate.getMonth() - (i + 1));
                 
                 try {
-                    const res = await axios.get(`https://api.zoom.us/v2/users/${user.id}/recordings?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                    // Wrapped in Retry Logic
+                    const res = await fetchWithRetry(() => 
+                        axios.get(`https://api.zoom.us/v2/users/${user.id}/recordings?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}`, { headers: { 'Authorization': `Bearer ${token}` } })
+                    );
+
                     if (!res.data.meetings) continue;
 
                     for (const meeting of res.data.meetings) {
@@ -340,6 +384,9 @@ async function checkZoom() {
                                  console.log(`      💾 Skipped (Already Done): ${meeting.topic}`);
                                  continue;
                             }
+                            
+                            // Important Delay between processing meetings
+                            await delay(1000);
 
                             let links = null, brand = "", isSalesEquation = false, shouldSkipForever = false, emailLinksDetail = "";
 
@@ -404,7 +451,9 @@ async function checkZoom() {
                                 if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
                                 try {
                                     const writer = fs.createWriteStream(tempPath);
-                                    const streamRes = await axios({ url: `${file.download_url}?access_token=${token}`, method: 'GET', responseType: 'stream' });
+                                    // Retry download logic
+                                    const streamRes = await fetchWithRetry(() => axios({ url: `${file.download_url}?access_token=${token}`, method: 'GET', responseType: 'stream' }));
+                                    
                                     streamRes.data.pipe(writer);
                                     await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
                                     

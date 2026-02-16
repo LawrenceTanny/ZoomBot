@@ -64,7 +64,7 @@
       "icon": "app.ico"
     },
     "mac": {
-      "target": [ "dmg", "zip" ],
+      "target": "zip",
       "icon": "app.icns"
     },
     "linux": {

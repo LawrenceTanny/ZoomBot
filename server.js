@@ -8,7 +8,7 @@ const axios = require('axios');
 const { google } = require('googleapis');
 const querystring = require('querystring');
 
-// --- ⚙️ EXTERNAL CONFIG SETUP ---
+// EXTERNAL CONFIG SETUP
 const appName = 'GenBot';
 const writableFolder = process.platform === 'win32' 
     ? path.join(process.env.APPDATA, appName) 
@@ -17,7 +17,6 @@ const writableFolder = process.platform === 'win32'
 if (!fs.existsSync(writableFolder)) fs.mkdirSync(writableFolder, { recursive: true });
 console.log(`DEBUG: Writable Storage Path: ${writableFolder}`);
 
-// Define Internal (App) vs External (User) Paths
 const paths = {
     secrets: { int: path.join(__dirname, 'secrets.env'), ext: path.join(writableFolder, 'secrets.env') },
     config: { int: path.join(__dirname, 'app_config.json'), ext: path.join(writableFolder, 'app_config.json') },
@@ -25,7 +24,6 @@ const paths = {
     token: { int: path.join(__dirname, 'zoom_token.json'), ext: path.join(writableFolder, 'zoom_token.json') }
 };
 
-// 🔄 BRIDGE LOGIC: Auto-Copy files to Safe Folder if missing
 ['secrets', 'config', 'log', 'token'].forEach(key => {
     if (fs.existsSync(paths[key].int) && !fs.existsSync(paths[key].ext)) {
         try {
@@ -35,12 +33,12 @@ const paths = {
     }
 });
 
-// 1. Load Secrets
+// 1. Loads secrets.env
 const secretsToLoad = fs.existsSync(paths.secrets.ext) ? paths.secrets.ext : paths.secrets.int;
 if (fs.existsSync(secretsToLoad)) require('dotenv').config({ path: secretsToLoad });
 else console.warn("⚠️ WARNING: secrets.env not found!");
 
-// 2. Load Config (Emails, Topics, Sales Folders)
+// 2. Loads Config (Emails, Topics, Sales Folders)
 let APP_CONFIG = { sales_team_folders: {}, ignore_topics: [], ignore_emails: [] };
 const configToLoad = fs.existsSync(paths.config.ext) ? paths.config.ext : paths.config.int;
 if (fs.existsSync(configToLoad)) {
@@ -52,12 +50,12 @@ if (fs.existsSync(configToLoad)) {
 
 console.log("DEBUG: 2. Libraries & Config loaded.");
 
-// --- ⚙️ CONSTANTS (From Env & Config) ---
+// --- CONSTANTS
 const CHECK_INTERVAL_MINUTES = 20; 
 const SCAN_MONTHS_BACK = 8; 
 const CUTOFF_DATE_STR = "2025-08-01"; 
 
-// Now loaded from secrets.env
+// Clickup IDs from env
 const BACKUP_FOLDER_ID = process.env.BACKUP_FOLDER_ID; 
 const CLICKUP_LAST_1_1_ID = process.env.CLICKUP_LAST_1_1_ID;
 const CLICKUP_CHECKIN_ID = process.env.CLICKUP_CHECKIN_ID;
@@ -196,7 +194,7 @@ async function markZoomComplete(meetingId, currentTopic, token) {
     try {
         const safeId = encodeURIComponent(meetingId);
         await axios.patch(`https://api.zoom.us/v2/meetings/${safeId}`, { topic: `${currentTopic} ✅` }, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } });
-    } catch (e) { /* Ignore */ }
+    } catch (e) { /* Ignore for now hehe*/ }
 }
 
 async function deleteZoomRecording(meetingId, token) {
@@ -210,7 +208,7 @@ async function deleteZoomRecording(meetingId, token) {
 async function refreshClickUpCache() {
     if (!process.env.CLICKUP_LIST_ID || !process.env.CLICKUP_API_KEY) return;
     
-    // Get Field IDs (Run once)
+    // Get Field IDs (Run once only cuz they rarely change, and we want to minimize API calls)
     if (!FIELD_MAP.internal) {
         try {
             const res = await axios.get(`https://api.clickup.com/api/v2/list/${process.env.CLICKUP_LIST_ID}/field`, { headers: { 'Authorization': process.env.CLICKUP_API_KEY } });

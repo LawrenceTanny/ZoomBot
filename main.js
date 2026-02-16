@@ -5,7 +5,6 @@ const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 
-// 1. Configure Logging
 log.transports.file.level = "info";
 autoUpdater.logger = log;
 
@@ -18,51 +17,38 @@ function createWindow() {
         height: 750,
         backgroundColor: '#121212',
         webPreferences: {
-            nodeIntegration: false, // Turn off for security (you are using preload)
-            contextIsolation: true, // REQUIRED for contextBridge to work
-            preload: path.join(__dirname, 'preload.js'), // 👈 This connects your buttons!
-            sandbox: false // Optional, but helps avoid some path issues
+            nodeIntegration: false, 
+            contextIsolation: true, 
+            preload: path.join(__dirname, 'preload.js'),
+            sandbox: false 
         }
     });
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadFile('index.html');
-
-    // 2. Check for updates once the window is ready
     mainWindow.once('ready-to-show', () => {
         autoUpdater.checkForUpdatesAndNotify();
     });
 }
 
 app.whenReady().then(createWindow);
-
-// --- AUTO UPDATER EVENTS ---
-
 autoUpdater.on('checking-for-update', () => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🔄 Checking for updates...');
 });
-
 autoUpdater.on('update-available', (info) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '⬇️ Update found! Downloading...');
 });
-
 autoUpdater.on('update-not-available', (info) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '✅ App is up to date.');
 });
-
 autoUpdater.on('error', (err) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '⚠️ Update Error: ' + err);
 });
-
 autoUpdater.on('update-downloaded', (info) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
-    
-    // Wait 5 seconds then restart
     setTimeout(() => {
         autoUpdater.quitAndInstall();
     }, 5000);
 });
-
-// --- EXISTING BOT LOGIC ---
 
 ipcMain.on('run-bot', (event) => {
     if (botProcess) return;

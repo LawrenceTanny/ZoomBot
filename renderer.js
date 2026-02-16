@@ -31,7 +31,6 @@ window.electronAPI.receiveLogs((data) => {
     const line = document.createElement('div');
     line.className = 'log-line';
     
-    // Simple UI coloring logic
     if (data.includes('✅')) line.style.color = '#4ade80';
     if (data.includes('❌')) line.style.color = '#f87171';
     if (data.includes('🚀')) line.style.color = '#fbbf24';

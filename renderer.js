@@ -39,3 +39,9 @@ window.electronAPI.receiveLogs((data) => {
     terminal.appendChild(line);
     terminal.scrollTop = terminal.scrollHeight;
 });
+
+// Add this at the bottom of your renderer.js
+document.getElementById('report-bug-btn').onclick = () => {
+    // This calls the bridge we are about to make in preload.js
+    window.electronAPI.sendBugReport();
+};

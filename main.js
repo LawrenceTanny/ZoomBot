@@ -1,6 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, desktopCapturer, shell } = require('electron');
 const path = require('path');
-const { fork } = require('child_process'); 
+const { fork } = require('child_process');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
@@ -17,10 +17,10 @@ function createWindow() {
         height: 750,
         backgroundColor: '#121212',
         webPreferences: {
-            nodeIntegration: false, 
-            contextIsolation: true, 
+            nodeIntegration: false,
+            contextIsolation: true,
             preload: path.join(__dirname, 'preload.js'),
-            sandbox: false 
+            sandbox: false
         }
     });
     mainWindow.setMenuBarVisibility(false);
@@ -30,7 +30,18 @@ function createWindow() {
     });
 }
 
+// --- APP LIFECYCLE ---
 app.whenReady().then(createWindow);
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+});
+
+// --- AUTO UPDATER LOGIC ---
 autoUpdater.on('checking-for-update', () => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🔄 Checking for updates...');
 });
@@ -45,11 +56,10 @@ autoUpdater.on('error', (err) => {
 });
 autoUpdater.on('update-downloaded', (info) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
-    setTimeout(() => {
-        autoUpdater.quitAndInstall();
-    }, 5000);
+    setTimeout(() => { autoUpdater.quitAndInstall(); }, 5000);
 });
 
+// --- BOT CONTROL ---
 ipcMain.on('run-bot', (event) => {
     if (botProcess) return;
     botProcess = fork(path.join(__dirname, 'server.js'), [], { 
@@ -73,17 +83,10 @@ ipcMain.on('run-bot', (event) => {
         if (mainWindow) mainWindow.webContents.send('from-bot', `🛑 Bot stopped (Code: ${code})`);
         botProcess = null;
     });
-    
-    botProcess.on('error', (err) => {
-        if (mainWindow) mainWindow.webContents.send('from-bot', `🔥 PROCESS ERROR: ${err.message}`);
-    });
 });
 
 ipcMain.on('kill-bot', () => {
-    if (botProcess) {
-        botProcess.kill();
-        botProcess = null;
-    }
+    if (botProcess) { botProcess.kill(); botProcess = null; }
 });
 
 ipcMain.handle('save-log-file', async (event, logContent) => {
@@ -92,7 +95,6 @@ ipcMain.handle('save-log-file', async (event, logContent) => {
         defaultPath: path.join(app.getPath('documents'), `watchman_log_${Date.now()}.txt`),
         filters: [{ name: 'Text Files', extensions: ['txt'] }]
     });
-
     if (filePath) {
         fs.writeFileSync(filePath, logContent);
         return filePath;
@@ -100,10 +102,30 @@ ipcMain.handle('save-log-file', async (event, logContent) => {
     return null;
 });
 
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+// --- BUG REPORT LOGIC ---
+ipcMain.on('trigger-bug-report', async () => {
+    try {
+        const reportDir = path.join(app.getPath('userData'), 'BugReports');
+        if (!fs.existsSync(reportDir)) fs.mkdirSync(reportDir);
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+        // 1. Capture Screenshot
+        const sources = await desktopCapturer.getSources({ 
+            types: ['window', 'screen'], 
+            thumbnailSize: { width: 1280, height: 720 } 
+        });
+        
+        const screenshotPath = path.join(reportDir, `screenshot_${Date.now()}.png`);
+        fs.writeFileSync(screenshotPath, sources[0].thumbnail.toPNG());
+
+        // 2. Open Email
+        const subject = encodeURIComponent(`[GenBot Bug Report] v${app.getVersion()}`);
+        const body = encodeURIComponent(`Hi Lawrence,\n\nI encountered an error. I have attached the logs and screenshot found in the folder that just opened.\n\nDescription of what I was doing:\n[Write here]`);
+        
+        shell.openExternal(`mailto:lawrencedominiquetan1104@gmail.com?subject=${subject}&body=${body}`);
+        
+        // 3. Show the folder for the user to grab the screenshot
+        shell.showItemInFolder(screenshotPath);
+    } catch (err) {
+        console.error("Bug Report Failed:", err);
+    }
 });

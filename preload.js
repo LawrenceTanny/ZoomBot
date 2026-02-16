@@ -5,5 +5,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stopBot: () => ipcRenderer.send('kill-bot'),
     receiveLogs: (callback) => ipcRenderer.on('from-bot', (event, value) => callback(value)),
     saveLog: (content) => ipcRenderer.invoke('save-log-file', content),
-    getVideoList: () => ipcRenderer.invoke('list-videos')
+    sendBugReport: () => ipcRenderer.send('trigger-bug-report')
 });

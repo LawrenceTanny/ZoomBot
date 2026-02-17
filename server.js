@@ -152,25 +152,36 @@ async function syncLogsWithDrive() {
 async function backupLogToDrive() {
     if (!fs.existsSync(paths.log.ext) || !BACKUP_FOLDER_ID) return;
     console.log("   ☁️ Backing up Log to Google Drive...");
+    
     const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
     oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     const fileName = "completed_log_backup.json";
 
     try {
+        // 1. Check if file exists (with Retry)
         const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
         const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-        
-        const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
 
         if (res.data.files.length > 0) {
-            await drive.files.update({ fileId: res.data.files[0].id, media });
+            // UPDATE EXISTING FILE (With Retry + Stream Re-Creation)
+            await fetchWithRetry(() => {
+                // ⚠️ CRITICAL: Must re-create stream inside the retry loop or it fails on 2nd try
+                const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
+                return drive.files.update({ fileId: res.data.files[0].id, media });
+            });
             console.log(`      ✅ Backup Updated`);
         } else {
-            await drive.files.create({ resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, media, fields: 'id' });
+            // CREATE NEW FILE (With Retry + Stream Re-Creation)
+            await fetchWithRetry(() => {
+                const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
+                return drive.files.create({ resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, media, fields: 'id' });
+            });
             console.log("      ✅ Backup Created");
         }
-    } catch (e) { console.error("      ⚠️ Backup Failed:", e.message); }
+    } catch (e) { 
+        console.error("      ⚠️ Backup Failed (Network issue?):", e.message); 
+    }
 }
 
 async function sendEmailNotification(status, videoName, brand, details) {

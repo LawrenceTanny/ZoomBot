@@ -1,10 +1,10 @@
 :root {
-    --bg-dark: #884e4e;
-    --sidebar-bg: #3a2f2f;
-    --text-main: hsl(73, 100%, 87%);
-    --accent: #002d75;
+    --bg-dark: #000229;
+    --sidebar-bg: #100e0e;
+    --text-main: rgb(34, 255, 0);
+    --accent: #001940;
     --danger: #280000;
-    --success: #008430;
+    --success: rgb(34, 255, 0);
 }
 
 body {
@@ -49,9 +49,9 @@ body {
     font-weight: 600;
 }
 
-.primary { background: var(--accent); color: white; }
-.danger { background: var(--danger); color: white; }
-.secondary { background: #333; color: white; }
+.primary { background: var(--accent); color: #f6f883; }
+.danger { background: var(--danger); color: rgb(255, 0, 98); }
+.secondary { background: #333; color: rgb(234, 187, 187); }
 
 .content {
     flex: 1;
@@ -76,4 +76,4 @@ body {
 
 .status-running span { color: var(--success); }
 .status-stopped span { color: var(--danger); }
-.status-idle span { color: #888; }
+.status-idle span { color: #5100ff; }

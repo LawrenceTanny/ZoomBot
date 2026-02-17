@@ -340,11 +340,11 @@ async function createDriveFolder(folderName, parentId) {
     const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
     oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    const safeName = folderName.replace(/[:\/]/g, ' '); 
+    const safeName = folderName.replace(/'/g, "\\'"); 
     const q = `mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and name = '${safeName}' and trashed = false`;
-    const checkRes = await drive.files.list({ q, fields: 'files(id)', supportsAllDrives: true, includeItemsFromAllDrives: true });
+    const checkRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)', supportsAllDrives: true, includeItemsFromAllDrives: true }));  
     if (checkRes.data.files && checkRes.data.files.length > 0) return checkRes.data.files[0].id; 
-    const res = await drive.files.create({ resource: { name: safeName, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] }, fields: 'id', supportsAllDrives: true });
+    const res = await fetchWithRetry(() => drive.files.create({ resource: { name: folderName, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] }, fields: 'id', supportsAllDrives: true }));
     return res.data.id;
 }
 
@@ -371,35 +371,25 @@ async function uploadToDrive(filePath, fileName, folderId) {
 async function checkZoom() {
     try {
         console.log(`\n🕒 Watchman Scan: ${new Date().toLocaleTimeString()}`);
-        
-        // 🛡️ Wrap Token Retrieval
         const token = await fetchWithRetry(() => getZoomAccessToken());
         
         let completed = [];
         if (fs.existsSync(paths.log.ext)) try { completed = JSON.parse(fs.readFileSync(paths.log.ext)); } catch (e) { completed = []; }
 
-        // 🛡️ Wrap User List Download
         const usersRes = await fetchWithRetry(() => axios.get('https://api.zoom.us/v2/users?page_size=300', { headers: { 'Authorization': `Bearer ${token}` } }));
-        
         const users = usersRes.data.users || [];
         const cutoffTime = new Date(CUTOFF_DATE_STR).getTime(); 
 
         for (const user of users) {
             if (IGNORE_EMAILS.includes(user.email)) continue;
-            
-            // Add slight delay between users to avoid hammering Zoom
-            await delay(500);
+            await delay(500); // Breathe
 
             for (let i = 0; i < SCAN_MONTHS_BACK; i++) {
                 let toDate = new Date(); toDate.setMonth(toDate.getMonth() - i);
                 let fromDate = new Date(); fromDate.setMonth(fromDate.getMonth() - (i + 1));
                 
                 try {
-                    // Wrapped in Retry Logic
-                    const res = await fetchWithRetry(() => 
-                        axios.get(`https://api.zoom.us/v2/users/${user.id}/recordings?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}`, { headers: { 'Authorization': `Bearer ${token}` } })
-                    );
-
+                    const res = await fetchWithRetry(() => axios.get(`https://api.zoom.us/v2/users/${user.id}/recordings?from=${fromDate.toISOString().split('T')[0]}&to=${toDate.toISOString().split('T')[0]}`, { headers: { 'Authorization': `Bearer ${token}` } }));
                     if (!res.data.meetings) continue;
 
                     for (const meeting of res.data.meetings) {
@@ -415,8 +405,7 @@ async function checkZoom() {
                                  continue;
                             }
                             
-                            // Important Delay between processing meetings
-                            await delay(1000);
+                            await delay(1000); 
 
                             let links = null, brand = "", isSalesEquation = false, shouldSkipForever = false, emailLinksDetail = "";
 
@@ -440,7 +429,6 @@ async function checkZoom() {
                                     else {
                                         const left = nameParts[0].trim(), right = nameParts[1].split('-')[0].trim();
                                         const linksLeft = findFolderLinksInMemory(left), linksRight = findFolderLinksInMemory(right);
-                                        
                                         if (linksLeft) { brand = left; links = linksLeft; }
                                         else if (linksRight) { brand = right; links = linksRight; }
                                         else { brand = left; links = null; }
@@ -478,22 +466,46 @@ async function checkZoom() {
                                     continue;
                                 }
 
-                                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-                                try {
-                                    const writer = fs.createWriteStream(tempPath);
-                                    // Retry download logic
-                                    const streamRes = await fetchWithRetry(() => axios({ url: `${file.download_url}?access_token=${token}`, method: 'GET', responseType: 'stream' }));
-                                    
-                                    streamRes.data.pipe(writer);
-                                    await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
-                                    
-                                    const stats = fs.statSync(tempPath);
-                                    if (file.file_size > 0 && stats.size !== file.file_size) throw new Error("File size mismatch");
-                                    
+                                // 🗑️ FORCE CLEANUP: Delete partial files from previous crashes
+                                if (fs.existsSync(tempPath)) {
+                                    const currentStats = fs.statSync(tempPath);
+                                    if (currentStats.size !== file.file_size) {
+                                        console.log(`      🧹 Deleting corrupted partial file: ${finalFileName}`);
+                                        fs.unlinkSync(tempPath);
+                                    }
+                                }
+
+                                // 🛡️ RETRY DOWNLOAD LOGIC
+                                let downloadSuccess = false;
+                                for(let attempt = 1; attempt <= 3; attempt++) {
+                                    try {
+                                        const writer = fs.createWriteStream(tempPath);
+                                        const streamRes = await axios({ 
+                                            url: `${file.download_url}?access_token=${token}`, 
+                                            method: 'GET', 
+                                            responseType: 'stream',
+                                            timeout: 60000 // 60s timeout per packet
+                                        });
+                                        
+                                        streamRes.data.pipe(writer);
+                                        await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
+                                        
+                                        const stats = fs.statSync(tempPath);
+                                        if (file.file_size > 0 && stats.size !== file.file_size) throw new Error("File size mismatch");
+                                        
+                                        downloadSuccess = true;
+                                        break; 
+                                    } catch (dlErr) {
+                                        console.log(`      ⚠️ Download cut off (${attempt}/3). Retrying...`);
+                                        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); // Delete half-file before retrying
+                                        await delay(3000); 
+                                    }
+                                }
+
+                                if (downloadSuccess) {
                                     validUploadQueue.push({ path: tempPath, name: finalFileName, target: targetFolder });
-                                } catch (err) { 
-                                    console.error(`      ⚠️ Download Failed: ${err.message}`);
-                                    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+                                } else {
+                                    console.error(`      ❌ Failed to download "${finalFileName}" after 3 attempts.`);
                                     corruptedFiles.push(finalFileName);
                                 }
                             }
@@ -501,7 +513,7 @@ async function checkZoom() {
                             if (validUploadQueue.length > 0) {
                                 for (const item of validUploadQueue) {
                                     try {
-                                        await uploadToDrive(item.path, item.name, item.target);
+                                        await fetchWithRetry(() => uploadToDrive(item.path, item.name, item.target));
                                         console.log(`      ✅ Uploaded: ${item.name}`);
                                     } catch (e) {
                                         console.error(`      ❌ Upload Failed: ${item.name}`);

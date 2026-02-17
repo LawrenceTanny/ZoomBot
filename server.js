@@ -215,7 +215,10 @@ async function getZoomAccessToken() {
     if (Date.now() >= tokenData.expires_at) {
         console.log('   🔄 Refreshing Zoom Token...');
         const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
-        const res = await axios.post('https://zoom.us/oauth/token', querystring.stringify({ grant_type: 'refresh_token', refresh_token: tokenData.refresh_token }), { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/x-www-form-urlencoded' } });
+        
+        // 🛡️ Added fetchWithRetry here
+        const res = await fetchWithRetry(() => axios.post('https://zoom.us/oauth/token', querystring.stringify({ grant_type: 'refresh_token', refresh_token: tokenData.refresh_token }), { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/x-www-form-urlencoded' } }));
+        
         tokenData = { access_token: res.data.access_token, refresh_token: res.data.refresh_token, expires_at: Date.now() + (res.data.expires_in * 1000) - 5000 };
         fs.writeFileSync(paths.token.ext, JSON.stringify(tokenData));
     }
@@ -255,7 +258,7 @@ async function deleteZoomRecording(meetingId, token) {
 async function refreshClickUpCache() {
     if (!process.env.CLICKUP_LIST_ID || !process.env.CLICKUP_API_KEY) return;
     
-    // Get Field IDs (Run once only cuz they rarely change, and we want to minimize API calls)
+    // Get Field IDs (Run once only cuz they rarely change)
     if (!FIELD_MAP.internal) {
         try {
             const res = await axios.get(`https://api.clickup.com/api/v2/list/${process.env.CLICKUP_LIST_ID}/field`, { headers: { 'Authorization': process.env.CLICKUP_API_KEY } });
@@ -266,6 +269,7 @@ async function refreshClickUpCache() {
 
     console.log("   📥 Downloading ClickUp Database...");
     let allLiteTasks = [], page = 0, keepGoing = true;
+    let retryCount = 0; // New Counter
     
     while (keepGoing) {
         try {
@@ -284,11 +288,21 @@ async function refreshClickUpCache() {
                 })));
                 process.stdout.write(`      Page ${page} loaded... (${allLiteTasks.length} tasks)\r`);
                 page++;
+                retryCount = 0; 
             }
         } catch (e) { 
-            console.error(`\n      ⚠️ Error fetching ClickUp Page ${page}: ${e.message}`);
-            if (e.code === 'ECONNABORTED' || (e.response && e.response.status === 504)) await new Promise(resolve => setTimeout(resolve, 5000));
-            else keepGoing = false; 
+            
+            const isNetworkError = e.code === 'ECONNRESET' || e.code === 'ENOTFOUND' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED';
+            
+            if (isNetworkError || (e.response && e.response.status >= 500)) {
+                retryCount++;
+                console.error(`\n      ⚠️ Network Blip (Page ${page}). Retrying in 5s... (Attempt ${retryCount})`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                
+            } else {
+                console.error(`\n      ❌ Fatal Error fetching ClickUp Page ${page}: ${e.message}`);
+                keepGoing = false; 
+            }
         }
     }
     CLICKUP_CACHE = allLiteTasks;
@@ -357,11 +371,16 @@ async function uploadToDrive(filePath, fileName, folderId) {
 async function checkZoom() {
     try {
         console.log(`\n🕒 Watchman Scan: ${new Date().toLocaleTimeString()}`);
-        const token = await getZoomAccessToken();
+        
+        // 🛡️ Wrap Token Retrieval
+        const token = await fetchWithRetry(() => getZoomAccessToken());
+        
         let completed = [];
         if (fs.existsSync(paths.log.ext)) try { completed = JSON.parse(fs.readFileSync(paths.log.ext)); } catch (e) { completed = []; }
 
-        const usersRes = await axios.get('https://api.zoom.us/v2/users?page_size=300', { headers: { 'Authorization': `Bearer ${token}` } });
+        // 🛡️ Wrap User List Download
+        const usersRes = await fetchWithRetry(() => axios.get('https://api.zoom.us/v2/users?page_size=300', { headers: { 'Authorization': `Bearer ${token}` } }));
+        
         const users = usersRes.data.users || [];
         const cutoffTime = new Date(CUTOFF_DATE_STR).getTime(); 
 

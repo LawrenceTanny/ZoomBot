@@ -1,10 +1,10 @@
 :root {
-    --bg-dark: #0f0f0f;
-    --sidebar-bg: #1a1a1a;
-    --text-main: #e0e0e0;
-    --accent: #3b82f6;
-    --danger: #ef4444;
-    --success: #22c55e;
+    --bg-dark: #884e4e;
+    --sidebar-bg: #3a2f2f;
+    --text-main: hsl(73, 100%, 87%);
+    --accent: #002d75;
+    --danger: #280000;
+    --success: #008430;
 }
 
 body {

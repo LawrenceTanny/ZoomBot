@@ -1,9 +1,9 @@
 :root {
-    --bg-dark: #000229;
-    --sidebar-bg: #100e0e;
+    --bg-dark: #280000;
+    --sidebar-bg: #220000;
     --text-main: rgb(34, 255, 0);
     --accent: #001940;
-    --danger: #280000;
+    --danger: #623838;
     --success: rgb(34, 255, 0);
 }
 
@@ -36,7 +36,7 @@ body {
     color: var(--accent);
 }
 
-.logo span { font-size: 12px; opacity: 0.5; color: white; }
+.logo span { font-size: 12px; opacity: 0.5; color: rgb(255, 0, 0); }
 
 .nav-btn {
     width: 100%;

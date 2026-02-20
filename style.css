@@ -77,3 +77,54 @@ body {
 .status-running span { color: var(--success); }
 .status-stopped span { color: var(--danger); }
 .status-idle span { color: #000000; }
+
+/* --- Changelog Styles --- */
+.changelog-container {
+    display: flex;
+    flex-direction: column;
+    margin-top: 10px;
+    flex-grow: 1; /* Allows it to stretch to the bottom of the sidebar */
+    overflow: hidden; /* Keeps it contained */
+}
+
+.changelog-box {
+    background-color: #0b0908; /* Matches your bug button */
+    border: 1px solid #333;
+    border-radius: 5px;
+    padding: 10px;
+    font-size: 11px;
+    color: #bbb;
+    overflow-y: auto; /* 👈 THIS makes it scrollable! */
+    max-height: 250px; /* Prevents it from getting too tall */
+}
+
+/* Custom scrollbar for the changelog to make it look sleek */
+.changelog-box::-webkit-scrollbar {
+    width: 6px;
+}
+.changelog-box::-webkit-scrollbar-thumb {
+    background-color: #444;
+    border-radius: 3px;
+}
+
+.changelog-box strong {
+    color: #4ade80; /* Uses the same green from your successful logs */
+    display: block;
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.changelog-box strong:first-child {
+    margin-top: 0;
+}
+
+.changelog-box ul {
+    padding-left: 15px;
+    margin-top: 3px;
+    margin-bottom: 0;
+}
+
+.changelog-box li {
+    margin-bottom: 4px;
+    line-height: 1.3;
+}

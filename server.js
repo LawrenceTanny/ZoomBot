@@ -310,13 +310,32 @@ async function refreshClickUpCache() {
 
 function findFolderLinksInMemory(brandName) {
     const cleanBrand = brandName.trim().toLowerCase();
+    
+    // 1. Exact Match
     let task = CLICKUP_CACHE.find(t => t.n === cleanBrand);
+    
+    // 2. Starts With (e.g., "Stylish Hound PTY LTD")
     if (!task) task = CLICKUP_CACHE.find(t => t.n.startsWith(cleanBrand + " ") || t.n.startsWith(cleanBrand + "("));
-    if (!task) return null;
+    
+    // 3. 🛡️ NEW: Super-Fuzzy Match (Ignores spaces, dashes, and symbols)
+    if (!task) {
+        const superClean = (str) => str.replace(/[^a-z0-9]/g, '');
+        const target = superClean(cleanBrand);
+        
+        // This will match "Stylish Hound" to "Stylish-Hound", "TheStylishHound", etc.
+        task = CLICKUP_CACHE.find(t => {
+            const cleanTask = superClean(t.n);
+            return cleanTask === target || cleanTask.startsWith(target) || cleanTask.endsWith(target);
+        });
+    }
+
+    if (!task) return null; // If it still can't find it, it really isn't there!
+    
     const extractId = (link) => {
         if (!link) return null;
         return (link.includes('id=') ? link.split('id=')[1] : link.split('/').pop()).split('?')[0].trim();
     };
+    
     return { taskId: task.id, internalFolderId: extractId(task.i), memberFolderId: extractId(task.m) };
 }
 

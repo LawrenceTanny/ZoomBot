@@ -27,6 +27,14 @@ function createWindow() {
     mainWindow.loadFile('index.html');
     mainWindow.once('ready-to-show', () => {
         autoUpdater.checkForUpdatesAndNotify();
+        setInterval(() => {
+            if (botProcess === null) { 
+                if (mainWindow) mainWindow.webContents.send('from-bot', '🔄 Auto-checking for updates (Bot is idle)...');
+                autoUpdater.checkForUpdatesAndNotify();
+            } else {
+                console.log("Auto-update check skipped because bot is running. Will run again in 30 minutes."); 
+            }
+        }, 30 * 60 * 1000);
     });
 }
 

@@ -447,10 +447,23 @@ async function checkZoom() {
                                     if (nameParts.length < 2) shouldSkipForever = true; 
                                     else {
                                         const left = nameParts[0].trim(), right = nameParts[1].split('-')[0].trim();
-                                        const linksLeft = findFolderLinksInMemory(left), linksRight = findFolderLinksInMemory(right);
-                                        if (linksLeft) { brand = left; links = linksLeft; }
-                                        else if (linksRight) { brand = right; links = linksRight; }
-                                        else { brand = left; links = null; }
+                                        const linksLeft = findFolderLinksInMemory(left);
+                                        const linksRight = findFolderLinksInMemory(right);
+
+                                        // NEW LOGIC: Prioritize the side that actually contains a Google Drive Folder ID
+                                        if (linksRight && linksRight.internalFolderId) { 
+                                            brand = right; 
+                                            links = linksRight; 
+                                        }
+                                        else if (linksLeft && linksLeft.internalFolderId) { 
+                                            brand = left; 
+                                            links = linksLeft; 
+                                        }
+                                        else { 
+                                            // If both fail, default to logging the right side (the actual brand name)
+                                            brand = right; 
+                                            links = null; 
+                                        }
 
                                         if (links) {
                                             console.log(`   🚀 Standard Video: "${meeting.topic}" (Brand: ${brand})`);
@@ -565,6 +578,9 @@ async function checkZoom() {
     console.log("🚀 Starting Server...");
     await syncLogsWithDrive();
     await refreshClickUpCache(); 
+    const dumpPath = path.join(writableFolder, 'clickup_brain_dump.txt');
+    fs.writeFileSync(dumpPath, CLICKUP_CACHE.map(t => t.n).join('\n'));
+    console.log(`      📁 Wrote all ClickUp brands to: ${dumpPath}`);
     while (true) {
         try { 
             await checkZoom(); 

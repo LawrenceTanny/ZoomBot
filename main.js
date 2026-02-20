@@ -32,9 +32,9 @@ function createWindow() {
                 if (mainWindow) mainWindow.webContents.send('from-bot', '🔄 Auto-checking for updates (Bot is idle)...');
                 autoUpdater.checkForUpdatesAndNotify();
             } else {
-                console.log("Auto-update check skipped because bot is running. Will run again in 30 minutes."); 
+                console.log("Auto-update check skipped because bot is running. Will run again in 5 minutes."); 
             }
-        }, 30 * 60 * 1000);
+        }, 5 * 60 * 1000);
     });
 }
 

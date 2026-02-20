@@ -1,11 +1,11 @@
-
+[
   {
     "version": "v1.2.1",
     "date": "February 20, 2026",
     "changes": [
       "Fixed a bug for reading clickup brands"
     ]
-  },[
+  },
   {
     "version": "v1.2.0",
     "date": "February 20, 2026",

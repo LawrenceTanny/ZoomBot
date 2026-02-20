@@ -1,6 +1,6 @@
 :root {
-    --bg-dark: #280000;
-    --sidebar-bg: #220000;
+    --bg-dark: #150e0e;
+    --sidebar-bg: #ffd99c;
     --text-main: rgb(34, 255, 0);
     --accent: #001940;
     --danger: #623838;
@@ -76,4 +76,4 @@ body {
 
 .status-running span { color: var(--success); }
 .status-stopped span { color: var(--danger); }
-.status-idle span { color: #5100ff; }
+.status-idle span { color: #000000; }

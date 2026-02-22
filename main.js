@@ -49,7 +49,6 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
 
-// --- AUTO UPDATER LOGIC ---
 autoUpdater.on('checking-for-update', () => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🔄 Checking for updates...');
 });
@@ -64,7 +63,25 @@ autoUpdater.on('error', (err) => {
 });
 autoUpdater.on('update-downloaded', (info) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
+   
+    let count = 0;
+    const intervalId = setInterval(() => {
+        count++;
+        if (count === 5) {
+            clearInterval(intervalId);
+            if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
+        }
+        if (count === 1){
+            if(mainWindow) mainWindow.webContents.send('from-bot', count + ' second until restart...');
+        }else if(count < 5 && count > 1){
+            if(mainWindow) mainWindow.webContents.send('from-bot', count + ' seconds until restart...');
+        }
+
+        
+     }, 1000); 
+
     setTimeout(() => { autoUpdater.quitAndInstall(); }, 5000);
+
 });
 
 // --- BOT CONTROL ---

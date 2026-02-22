@@ -1,4 +1,13 @@
 [
+    {
+    "version": "v1.2.2",
+    "date": "February 22, 2026",
+    "changes": [
+      "Added a new feature to automatically check for updates every 30 minutes and notify the user when an update is available. This ensures that users always have the latest version of the app with the newest features and bug fixes.",
+      "Added a new feature to safely save data to prevent file corruption. This ensures that user data is protected and reduces the risk of losing important information due to unexpected crashes or errors.",
+      "Fixed a bug that caused the app to crash when reading clickup brands. This improves the stability of the app and ensures that users can access their clickup brands without any issues."
+    ]
+  },
   {
     "version": "v1.2.1",
     "date": "February 20, 2026",

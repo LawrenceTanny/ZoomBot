@@ -1,0 +1,30 @@
+name: Build and Release GenBot
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Change this if you use a different Node version
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🚀 Build and Publish
+        env:
+          # This gives electron-builder permission to upload to your GitHub Releases
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        run: npx electron-builder --publish always

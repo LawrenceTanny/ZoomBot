@@ -485,9 +485,8 @@ async function checkZoom() {
 
                             for (const file of meeting.recording_files) {
                                 if (file.file_extension === 'JSON' || file.file_type === 'TIMELINE') continue;
-                                const isTextFile = (file.file_extension === 'TXT') || file.file_type === 'CHAT';
-                                if (!isTextFile && file.file_size < 1024) continue; 
-                                
+                                const isTextFile = ['TXT', 'VTT', 'CSV'].includes(file.file_extension) || ['CHAT', 'CC', 'TRANSCRIPT'].includes(file.file_type); 
+                                if (!isTextFile && file.file_size < 1024) continue;   
                                 let fileExt = file.file_type === 'MP4' ? '.mp4' : (file.file_type === 'M4A' ? '.m4a' : (file.file_type === 'CHAT' ? '.txt' : `.${file.file_extension.toLowerCase()}`));
                                 let finalFileName = `${meeting.topic.replace(/[^a-zA-Z0-9 \-\.]/g, '').trim()} - ${niceDate.replace(/[^a-zA-Z0-9 \-\.]/g, '')}${fileExt}`;
                                 const tempPath = path.join(TEMP_DIR, finalFileName);
@@ -523,8 +522,9 @@ async function checkZoom() {
                                         await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
                                         
                                         const stats = fs.statSync(tempPath);
-                                        if (file.file_size > 0 && stats.size !== file.file_size) throw new Error("File size mismatch");
-                                        
+                                        if (!isTextFile && file.file_size > 0 && stats.size !== file.file_size) {
+                                            throw new Error(`File size mismatch. Expected: ${file.file_size}, Got: ${stats.size}`);
+                                        }
                                         downloadSuccess = true;
                                         break; 
                                     } catch (dlErr) {

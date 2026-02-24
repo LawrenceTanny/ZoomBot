@@ -1,4 +1,12 @@
 [
+  {
+    "version": "v1.2.3",
+    "date": "February 24, 2026",
+    "changes": [
+      "Added try and catch logic for small size difference for txt and vtt files",
+      "New icon hell yeah!"
+    ]
+  },
     {
     "version": "v1.2.2",
     "date": "February 22, 2026",

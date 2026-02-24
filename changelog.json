@@ -1,4 +1,11 @@
 [
+      {
+    "version": "v1.2.5",
+    "date": "February 24, 2026",
+    "changes": [
+      "Fixed a bug where files failed to upload properly cause of difference in zoom file size and actual downloaded file size."
+    ]
+  },
     {
     "version": "v1.2.4",
     "date": "February 24, 2026",

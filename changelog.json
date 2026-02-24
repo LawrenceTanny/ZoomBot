@@ -1,4 +1,13 @@
 [
+  {
+    "version": "v1.3.0",
+    "date": "February 24, 2026",
+    "changes": [
+      "Added a Light and Dark Mode theme toggle for better user experience and accessibility. Users can now switch between light and dark themes based on their preference, making the app more visually appealing and easier to use in different lighting conditions.",
+      "Updated the app icon to a new design that better represents the brand and enhances the overall look of the application. The new icon provides a fresh and modern appearance, making it more recognizable and appealing to users.",
+      "Updated the Design to be more modern and sleek, improving the overall user interface and user experience. The new design features a cleaner layout, improved typography, and a more intuitive navigation system, making it easier for users to interact with the app and access its features."
+    ]
+  },
       {
     "version": "v1.2.5",
     "date": "February 24, 2026",

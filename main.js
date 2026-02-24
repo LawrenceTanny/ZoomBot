@@ -61,30 +61,28 @@ autoUpdater.on('update-not-available', (info) => {
 autoUpdater.on('error', (err) => {
     if(mainWindow) mainWindow.webContents.send('from-bot', '⚠️ Update Error: ' + err);
 });
-autoUpdater.on('update-downloaded', (info) => {
-    if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
-   
-    let count = 0;
+autoUpdater.on('update-downloaded', () => {
+    let remaining = 5;
+
+    if (mainWindow) {
+        mainWindow.webContents.send('from-bot', `🎉 Update downloaded. Restarting in ${remaining}s...`);
+    }
+
     const intervalId = setInterval(() => {
-        count++;
-        if (count === 5) {
-            clearInterval(intervalId);
-            if(mainWindow) mainWindow.webContents.send('from-bot', '🎉 Update downloaded. Restarting in 5s...');
-        }
-        if (count === 1){
-            if(mainWindow) mainWindow.webContents.send('from-bot', count + ' second until restart...');
-        }else if(count < 5 && count > 1){
-            if(mainWindow) mainWindow.webContents.send('from-bot', count + ' seconds until restart...');
+        remaining--;
+
+        if (remaining > 0) {
+            const unit = remaining === 1 ? 'second' : 'seconds';
+            if (mainWindow) mainWindow.webContents.send('from-bot', `${remaining} ${unit} until restart...`);
+            return;
         }
 
-        
-     }, 1000); 
-
-    setTimeout(() => { autoUpdater.quitAndInstall(); }, 5000);
-
+        clearInterval(intervalId);
+        autoUpdater.quitAndInstall();
+    }, 1000);
 });
 
-// --- BOT CONTROL ---
+
 ipcMain.on('run-bot', (event) => {
     if (botProcess) return;
     botProcess = fork(path.join(__dirname, 'server.js'), [], { 
@@ -126,14 +124,10 @@ ipcMain.handle('save-log-file', async (event, logContent) => {
     }
     return null;
 });
-
-// --- BUG REPORT LOGIC ---
 ipcMain.on('trigger-bug-report', async () => {
     try {
         const reportDir = path.join(app.getPath('userData'), 'BugReports');
         if (!fs.existsSync(reportDir)) fs.mkdirSync(reportDir);
-
-        // 1. Capture Screenshot
         const sources = await desktopCapturer.getSources({ 
             types: ['window', 'screen'], 
             thumbnailSize: { width: 1280, height: 720 } 
@@ -141,14 +135,11 @@ ipcMain.on('trigger-bug-report', async () => {
         
         const screenshotPath = path.join(reportDir, `screenshot_${Date.now()}.png`);
         fs.writeFileSync(screenshotPath, sources[0].thumbnail.toPNG());
-
-        // 2. Open Email
         const subject = encodeURIComponent(`[GenBot Bug Report] v${app.getVersion()}`);
         const body = encodeURIComponent(`Hi Lawrence,\n\nI encountered an error. I have attached the logs and screenshot found in the folder that just opened.\n\nDescription of what I was doing:\n[Write here]`);
         
         shell.openExternal(`mailto:lawrencedominiquetan1104@gmail.com?subject=${subject}&body=${body}`);
         
-        // 3. Show the folder for the user to grab the screenshot
         shell.showItemInFolder(screenshotPath);
     } catch (err) {
         console.error("Bug Report Failed:", err);

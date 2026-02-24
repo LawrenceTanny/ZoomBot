@@ -1,4 +1,11 @@
 [
+    {
+    "version": "v1.2.4",
+    "date": "February 24, 2026",
+    "changes": [
+      "Fixed update timer logic."
+    ]
+  },
   {
     "version": "v1.2.3",
     "date": "February 24, 2026",

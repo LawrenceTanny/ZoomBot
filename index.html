@@ -1,42 +1,71 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>GenBot</title>
-    <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ecommerce Equation</title>
+    <link id="themeStylesheet" rel="stylesheet" href="stylelight.css" />
 </head>
 <body>
     <div class="app-container">
         <aside class="sidebar">
-            <div class="logo">GenBot <span>v1.2.5</span></div>
-            <nav>
+            <div class="logo-wrap">
+                <div class="logo">Ecommerce Equation</div>
+                <span class="version">V1.3.0</span>
+            </div>
+
+            <nav class="menu-group">
                 <button id="startBtn" class="nav-btn primary">▶ Start Bot</button>
                 <button id="stopBtn" class="nav-btn danger">■ Stop Bot</button>
-                <hr>
-                <button id="exportBtn" class="nav-btn secondary">📂 Export Logs</button>
-                <button id="clearBtn" class="nav-btn secondary">🧹 Clear Screen</button>
+                <button id="exportBtn" class="nav-btn muted">📂 Export Logs</button>
+                <button id="clearBtn" class="nav-btn muted">🧹 Clear Screen</button>
             </nav>
-            <button id="report-bug-btn" style="background: #0b0908; color: rgb(240, 163, 163); border: none; padding: 10px; border-radius: 5px; cursor: pointer;">
-                🐞 Report a Bug
-            </button>
-            <div class="changelog-container">
-                <h4 style="color: #000000; margin: 15px 0 5px 0; font-size: 12px; text-transform: uppercase;">📝 Update History</h4>
+
+            <button id="report-bug-btn" class="report-btn">🐞 Report a Bug</button>
+
+            <section class="changelog-container">
+                <h4>Update History</h4>
                 <div id="changelog-list" class="changelog-box">
-                    <p style="font-size: 10px;">Loading updates...</p>
+                    <p>Loading updates...</p>
                 </div>
-            </div>
+            </section>
         </aside>
 
         <main class="content">
-            <header>
+            <header class="topbar">
                 <div id="statusIndicator" class="status-idle">Status: <span>Idle</span></div>
+                <button id="themeToggleBtn" class="theme-toggle" type="button" aria-label="Switch to dark mode">🌙</button>
             </header>
-            <div id="terminal" class="terminal-box">
+
+            <section id="terminal" class="terminal-box" aria-label="bot terminal logs">
                 <div class="log-line system">Starting Up...</div>
-                <br></br>
-            </div>
-            
+            </section>
         </main>
     </div>
-    <script src="renderer.js"></script>
+
+    <script src="../renderer.js"></script>
+    <script>
+        const themeStylesheet = document.getElementById('themeStylesheet');
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+        const themeStorageKey = 'genbot-theme';
+
+        function applyTheme(theme) {
+            const isDark = theme === 'dark';
+            themeStylesheet.setAttribute('href', isDark ? 'styledark.css' : 'stylelight.css');
+            themeToggleBtn.textContent = isDark ? '☀️' : '🌙';
+            themeToggleBtn.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+        }
+
+        const savedTheme = localStorage.getItem(themeStorageKey);
+        const initialTheme = savedTheme === 'dark' ? 'dark' : 'light';
+        applyTheme(initialTheme);
+
+        themeToggleBtn.addEventListener('click', () => {
+            const currentTheme = themeStylesheet.getAttribute('href') === 'styledark.css' ? 'dark' : 'light';
+            const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(themeStorageKey, nextTheme);
+            applyTheme(nextTheme);
+        });
+    </script>
 </body>
 </html>

@@ -94,12 +94,12 @@ async function fetchWithRetry(operation, retries = 3) {
             return await operation();
         } catch (err) {
             if (i === retries - 1) throw err; 
-            console.log(`      ⚠️ API Hiccup... Retrying (${i + 1}/${retries}) in 2s...`);
+            const googleError = err.response && err.response.data && err.response.data.error ? err.response.data.error.message : err.message;
+            console.log(`      ⚠️ API Hiccup (${i + 1}/${retries}). Reason: ${googleError}`);
             await delay(2000); 
         }
     }
 }
-
 function getFormattedDate(dateString) {
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const d = new Date(dateString);
@@ -508,6 +508,8 @@ async function checkZoom() {
 
                                 // 🛡️ RETRY DOWNLOAD LOGIC
                                 let downloadSuccess = false;
+                                let lastKnownError = "Unknown network drop";
+                                
                                 for(let attempt = 1; attempt <= 3; attempt++) {
                                     try {
                                         const writer = fs.createWriteStream(tempPath);
@@ -515,7 +517,7 @@ async function checkZoom() {
                                             url: `${file.download_url}?access_token=${token}`, 
                                             method: 'GET', 
                                             responseType: 'stream',
-                                            timeout: 60000 // 60s timeout per packet
+                                            timeout: 60000 
                                         });
                                         
                                         streamRes.data.pipe(writer);
@@ -528,8 +530,9 @@ async function checkZoom() {
                                         downloadSuccess = true;
                                         break; 
                                     } catch (dlErr) {
-                                        console.log(`      ⚠️ Download cut off (${attempt}/3). Retrying...`);
-                                        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); // Delete half-file before retrying
+                                        lastKnownError = dlErr.message || dlErr.code || "Unknown network drop";
+                                        console.log(`      ⚠️ Download cut off (${attempt}/3). Reason: ${lastKnownError}. Retrying...`);
+                                        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); 
                                         await delay(3000); 
                                     }
                                 }
@@ -537,8 +540,8 @@ async function checkZoom() {
                                 if (downloadSuccess) {
                                     validUploadQueue.push({ path: tempPath, name: finalFileName, target: targetFolder });
                                 } else {
-                                    console.error(`      ❌ Failed to download "${finalFileName}" after 3 attempts.`);
-                                    corruptedFiles.push(finalFileName);
+                                    console.error(`      ❌ Failed to download "${finalFileName}". Final Error: ${lastKnownError}`);
+                                    corruptedFiles.push(`${finalFileName} (Reason: ${lastKnownError})`); // Adds reason to the failure email!
                                 }
                             }
 
@@ -563,10 +566,14 @@ async function checkZoom() {
                                 saveToLog({ name: meeting.topic, uuid: meeting.uuid, date: niceDate, link: meeting.share_url, status: "Uploaded" });
                                 if (!isSalesEquation && links.taskId) await updateClickUpSmart(links.taskId, new Date(meeting.start_time).getTime());
                             } else {
-                                console.log("      🛑 Batch Failed.");
+                                console.log(`      🛑 Batch Failed for "${meeting.topic}".`);
+                                console.log(`      🛡️ ACTION: Skipping Zoom deletion. Video remains safe on Zoom.`);
                                 await sendEmailNotification('RETRY', meeting.topic, brand, corruptedFiles.join("\n"));
                             }
-                        } catch (meetingErr) { console.error(`      🔥 MEETING ERROR:`, meetingErr.message); }
+                        } catch (meetingErr) { 
+                            console.error(`      🔥 MEETING ERROR for "${meeting.topic}": ${meetingErr.message}`); 
+                            console.log(`      🛡️ ACTION: Skipping Zoom deletion to protect data.`);
+                        }
                     }
                 } catch (err) {}
             }

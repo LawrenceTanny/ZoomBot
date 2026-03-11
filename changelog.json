@@ -1,4 +1,12 @@
 [
+    {
+    "version": "v2.0.3",
+    "date": "March 11, 2026",
+    "changes": [
+      "Added better error handling for bugs",
+      "Make the logs errors more specific for bug reporting"
+    ]
+  },
   {
     "version": "v2.0.2",
     "date": "February 24, 2026",

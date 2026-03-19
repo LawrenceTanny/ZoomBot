@@ -45,7 +45,7 @@ document.getElementById('report-bug-btn').onclick = () => {
     // This calls the bridge we are about to make in preload.js
     window.electronAPI.sendBugReport();
 };
-/*
+/* REMOVED BECAUSE CLIENT DONT WANT IT :<
 async function loadChangelog() {
     const changelogBox = document.getElementById('changelog-list');
     try {

@@ -45,7 +45,7 @@ document.getElementById('report-bug-btn').onclick = () => {
     // This calls the bridge we are about to make in preload.js
     window.electronAPI.sendBugReport();
 };
-
+/*
 async function loadChangelog() {
     const changelogBox = document.getElementById('changelog-list');
     try {
@@ -73,5 +73,4 @@ async function loadChangelog() {
     }
 }
 
-// Run it when the app starts
-loadChangelog();
+loadChangelog();*/

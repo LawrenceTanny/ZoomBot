@@ -1,6 +1,6 @@
 [
     {
-  "version": "v2.2.5",
+  "version": "v3.0.0",
   "date": "September 01, 2026",
   "changes": [
     "Updated zoom token secret token to fix webhook verification issues."

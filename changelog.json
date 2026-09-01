@@ -1,4 +1,18 @@
 [
+  {
+    "version": "v2.2.0",
+    "date": "September 01, 2026",
+    "changes": [
+      "Added configuration version management with semantic versioning (MAJOR.MINOR.PATCH) to app_config.json for controlled deployments and multi-instance synchronization.",
+      "Implemented automatic sync system that downloads app_config.json, secrets.env, zoom_token.json, google_credentials.json, and oauth_credentials.json from Google Drive on startup with smart version comparison.",
+      "Added automatic backup of all configuration files to Google Drive, ensuring no configuration changes are lost and enabling seamless multi-instance deployments.",
+      "Fixed critical bugs: infinite retry loop in ClickUp sync (won't proceed with incomplete data), stream re-consumption in file uploads, and stream handle leaks in download loop preventing 'Too many open files' crashes.",
+      "Improved file size validation with tolerance-based checking (1% or 1MB) instead of exact match, fixing false-positive file corruption errors due to network padding.",
+      "Implemented continuous backup system - completed_log.json now backs up to Google Drive immediately after each video is processed, preventing data loss on app crashes.",
+      "Enhanced bot stop message to display 'Manual Override' when user stops the bot manually, providing clear feedback on stop status versus error codes.",
+      "Suppressed punycode deprecation warnings from googleapis library for cleaner console output."
+    ]
+  },
     {
     "version": "v2.0.3",
     "date": "March 11, 2026",

@@ -4,12 +4,12 @@ const { fork } = require('child_process');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
-
 log.transports.file.level = "info";
 autoUpdater.logger = log;
 
 let mainWindow;
 let botProcess = null;
+let botStoppedManually = false; // Track if user manually stopped it
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -103,12 +103,19 @@ ipcMain.on('run-bot', (event) => {
     }
 
     botProcess.on('close', (code) => {
-        if (mainWindow) mainWindow.webContents.send('from-bot', `🛑 Bot stopped (Code: ${code})`);
+        if (mainWindow) {
+            const message = botStoppedManually 
+                ? '🛑 Bot stopped (Manual Override)'
+                : `🛑 Bot stopped (Code: ${code})`;
+            mainWindow.webContents.send('from-bot', message);
+        }
         botProcess = null;
+        botStoppedManually = false; // Reset flag
     });
 });
 
 ipcMain.on('kill-bot', () => {
+    botStoppedManually = true; // Mark as manual stop
     if (botProcess) { botProcess.kill(); botProcess = null; }
 });
 

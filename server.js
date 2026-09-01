@@ -1,4 +1,5 @@
 console.time("Startup"); 
+process.noDeprecation = true; // Suppress punycode deprecation warning
 console.log("DEBUG: 1. Script starting...");
 
 const fs = require('fs');
@@ -65,6 +66,8 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
 // Mapped from JSON
 const SALES_TEAM_FOLDERS = APP_CONFIG.sales_team_folders || {};
+const ONE_ON_ONE_FOLDERS = APP_CONFIG["1:1_team_folders"] || {};
+const INTERNAL_ONLY_EMAILS = APP_CONFIG.internal_only_folders || [];
 const IGNORE_EMAILS = APP_CONFIG.ignore_emails || [];
 const IGNORE_TOPICS = APP_CONFIG.ignore_topics || [];
 
@@ -149,40 +152,311 @@ async function syncLogsWithDrive() {
     } catch (e) { console.error("      ⚠️ Sync Failed:", e.message); }
 }
 
+// ☁️ SYNC CONFIG WITH DRIVE
+async function syncConfigWithDrive() {
+    if (!BACKUP_FOLDER_ID) return;
+    console.log("   ☁️ Syncing: Checking config version on Google Drive...");
+    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
+    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const fileName = "app_config.json"; // Changed: now downloads from shared folder
+
+    try {
+        const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
+        const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+
+        if (res.data.files.length > 0) {
+            const fileId = res.data.files[0].id;
+            console.log("      ⬇️ Found app_config.json. Downloading...");
+            const destPath = path.join(TEMP_DIR, 'cloud_config.json');
+            const dest = fs.createWriteStream(destPath);
+            const download = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+            
+            await new Promise((resolve, reject) => {
+                download.data.on('end', resolve).on('error', reject).pipe(dest);
+            });
+
+            // Compare versions
+            let localConfig = null;
+            let localVersion = "0.0.0";
+            if (fs.existsSync(paths.config.ext)) {
+                try { 
+                    localConfig = JSON.parse(fs.readFileSync(paths.config.ext, 'utf8'));
+                    localVersion = localConfig.version || "0.0.0";
+                } catch (e) { console.warn("      ⚠️ Error parsing local config:", e.message); }
+            }
+
+            let cloudConfig = null;
+            let cloudVersion = "0.0.0";
+            try { 
+                cloudConfig = JSON.parse(fs.readFileSync(destPath, 'utf8'));
+                cloudVersion = cloudConfig.version || "0.0.0";
+            } catch (e) { console.warn("      ⚠️ Error parsing cloud config:", e.message); }
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+
+            // Compare versions: if Drive is newer, update local with FULL config
+            if (cloudConfig && cloudVersion > localVersion) {
+                console.log(`      📦 Cloud config newer (${localVersion} → ${cloudVersion}). Updating...`);
+                safeSave(paths.config.ext, cloudConfig); // Save entire config, not just version
+                APP_CONFIG = cloudConfig; // Update in-memory config
+                console.log("      ✅ Config Updated!");
+            } else if (cloudVersion === localVersion) {
+                console.log("      ✅ Config already up-to-date (v" + localVersion + ")");
+            } else if (cloudConfig) {
+                console.log("      ℹ️ Local config is newer (v" + localVersion + " > v" + cloudVersion + ")");
+            }
+        } else {
+            console.log("      ℹ️ No app_config.json on Drive. Using local version.");
+        }
+    } catch (e) { console.error("      ⚠️ Config Sync Failed:", e.message); }
+}
+
+// ☁️ SYNC CREDENTIALS FROM DRIVE
+async function syncCredentialsFromDrive() {
+    if (!BACKUP_FOLDER_ID) return;
+    console.log("   ☁️ Syncing: Downloading credentials from Google Drive...");
+    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
+    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    
+    const filesToSync = [
+        { name: "secrets.env", path: paths.secrets.ext },
+        { name: "zoom_token.json", path: paths.token.ext },
+        { name: "google_credentials.json", path: path.join(writableFolder, 'google_credentials.json') },
+        { name: "oauth_credentials.json", path: path.join(writableFolder, 'oauth_credentials.json') }
+    ];
+
+    for (const file of filesToSync) {
+        try {
+            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${file.name}' and trashed = false`;
+            const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+
+            if (res.data.files.length > 0) {
+                const fileId = res.data.files[0].id;
+                const destPath = path.join(TEMP_DIR, file.name);
+                const dest = fs.createWriteStream(destPath);
+                const download = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+                
+                await new Promise((resolve, reject) => {
+                    download.data.on('end', resolve).on('error', reject).pipe(dest);
+                });
+
+                // Replace local file with downloaded version
+                if (fs.existsSync(destPath)) {
+                    fs.copyFileSync(destPath, file.path);
+                    fs.unlinkSync(destPath);
+                    console.log(`      ✅ ${file.name} synced`);
+                }
+            } else {
+                console.log(`      ℹ️ ${file.name} not found on Drive. Keeping local version.`);
+            }
+        } catch (e) {
+            console.warn(`      ⚠️ Failed to sync ${file.name}: ${e.message}`);
+        }
+    }
+}
+
+
 async function backupLogToDrive() {
     if (!fs.existsSync(paths.log.ext) || !BACKUP_FOLDER_ID) return;
-    console.log("   ☁️ Backing up Log to Google Drive...");
     
     const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
     oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     const fileName = "completed_log_backup.json";
 
-    try {
-        // 1. Check if file exists (with Retry)
-        const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
-        const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-
-        if (res.data.files.length > 0) {
-            // UPDATE EXISTING FILE (With Retry + Stream Re-Creation)
-            await fetchWithRetry(() => {
-                // ⚠️ CRITICAL: Must re-create stream inside the retry loop or it fails on 2nd try
-                const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
-                return drive.files.update({ fileId: res.data.files[0].id, media });
-            });
-            console.log(`      ✅ Backup Updated`);
-        } else {
-            // CREATE NEW FILE (With Retry + Stream Re-Creation)
-            await fetchWithRetry(() => {
-                const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
-                return drive.files.create({ resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, media, fields: 'id' });
-            });
-            console.log("      ✅ Backup Created");
+    let backupSuccess = false;
+    let lastError = null;
+    
+    // Retry up to 3 times if backup fails
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            // 1. Read local log
+            let localLog = [];
+            if (fs.existsSync(paths.log.ext)) {
+                try { localLog = JSON.parse(fs.readFileSync(paths.log.ext)); } catch (e) { localLog = []; }
+            }
+            
+            // 2. Check if backup exists on Drive
+            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
+            const listRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+            
+            let fileId = listRes.data.files?.length > 0 ? listRes.data.files[0].id : null;
+            
+            if (fileId) {
+                // 3a. Pull existing backup from Drive
+                const destPath = path.join(TEMP_DIR, 'drive_backup_temp.json');
+                const dest = fs.createWriteStream(destPath);
+                const download = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+                
+                await new Promise((resolve, reject) => {
+                    download.data.on('end', resolve).on('error', reject).pipe(dest);
+                });
+                
+                let driveLog = [];
+                try { driveLog = JSON.parse(fs.readFileSync(destPath)); } catch (e) { driveLog = []; }
+                if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+                
+                // 3b. SMART MERGE: Keep the latest version by comparing dates
+                const mergedLog = {};
+                
+                // Add all from Drive first
+                driveLog.forEach(item => {
+                    if (item.uuid) mergedLog[item.uuid] = item;
+                });
+                
+                // Overwrite with local only if local is NEWER
+                localLog.forEach(item => {
+                    if (item.uuid) {
+                        const existingDate = mergedLog[item.uuid]?.date || '';
+                        const newDate = item.date || '';
+                        // Keep the newer entry (string date comparison works: "2026-09-01" > "2026-08-31")
+                        if (newDate >= existingDate) {
+                            mergedLog[item.uuid] = item;
+                        }
+                    }
+                });
+                
+                const finalLog = Object.values(mergedLog);
+                
+                // 4. UPDATE Drive with merged data
+                await fetchWithRetry(() => {
+                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
+                    return drive.files.update({ fileId, media });
+                });
+                
+                console.log(`      ✅ Backup Updated (Merged ${finalLog.length} entries)`);
+            } else {
+                // 3c. CREATE NEW FILE if doesn't exist
+                await fetchWithRetry(() => {
+                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.log.ext) };
+                    return drive.files.create({ 
+                        resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, 
+                        media, 
+                        fields: 'id' 
+                    });
+                });
+                console.log("      ✅ Backup Created");
+            }
+            
+            backupSuccess = true;
+            break; // Success - exit retry loop
+            
+        } catch (e) {
+            lastError = e.message;
+            console.warn(`   ⚠️ Backup attempt ${attempt}/3 failed: ${lastError}. Retrying...`);
+            await delay(2000); // Wait before retry
         }
-    } catch (e) { 
-        console.error("      ⚠️ Backup Failed (Network issue?):", e.message); 
+    }
+    
+    if (!backupSuccess) {
+        console.error(`   ❌ Backup Failed after 3 attempts. Last error: ${lastError}`);
     }
 }
+
+// 🔧 BACKUP CONFIG TO DRIVE
+async function backupConfigToDrive() {
+    if (!fs.existsSync(paths.config.ext) || !BACKUP_FOLDER_ID) return;
+    
+    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
+    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const fileName = "app_config.json"; // Changed: now backs up to shared folder
+
+    let backupSuccess = false;
+    let lastError = null;
+    
+    // Retry up to 2 times if config backup fails
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
+            const listRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+            
+            let fileId = listRes.data.files?.length > 0 ? listRes.data.files[0].id : null;
+            
+            if (fileId) {
+                // UPDATE existing config
+                await fetchWithRetry(() => {
+                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.config.ext) };
+                    return drive.files.update({ fileId, media });
+                });
+                console.log(`      ✅ app_config.json backed up to Drive`);
+            } else {
+                // CREATE new config backup
+                await fetchWithRetry(() => {
+                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.config.ext) };
+                    return drive.files.create({ 
+                        resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, 
+                        media, 
+                        fields: 'id' 
+                    });
+                });
+                console.log("      ✅ app_config.json backed up to Drive (new)");
+            }
+            
+            backupSuccess = true;
+            break;
+        } catch (e) {
+            lastError = e.message;
+            console.warn(`   ⚠️ Config backup attempt ${attempt}/2 failed. Retrying...`);
+            await delay(2000);
+        }
+    }
+    
+    if (!backupSuccess) {
+        console.warn(`   ⚠️ Config backup skipped: ${lastError}`);
+    }
+}
+
+// 🔄 BACKUP CREDENTIALS TO DRIVE
+async function backupCredentialsToDrive() {
+    if (!BACKUP_FOLDER_ID) return;
+    
+    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
+    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    
+    const filesToBackup = [
+        { name: "secrets.env", path: paths.secrets.ext },
+        { name: "zoom_token.json", path: paths.token.ext },
+        { name: "google_credentials.json", path: path.join(writableFolder, 'google_credentials.json') },
+        { name: "oauth_credentials.json", path: path.join(writableFolder, 'oauth_credentials.json') }
+    ];
+
+    for (const file of filesToBackup) {
+        if (!fs.existsSync(file.path)) continue;
+        
+        try {
+            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${file.name}' and trashed = false`;
+            const listRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
+            
+            let fileId = listRes.data.files?.length > 0 ? listRes.data.files[0].id : null;
+            
+            if (fileId) {
+                // UPDATE existing file
+                await fetchWithRetry(() => {
+                    const mimeType = file.name.endsWith('.json') ? 'application/json' : 'text/plain';
+                    const media = { mimeType, body: fs.createReadStream(file.path) };
+                    return drive.files.update({ fileId, media });
+                });
+            } else {
+                // CREATE new file
+                await fetchWithRetry(() => {
+                    const mimeType = file.name.endsWith('.json') ? 'application/json' : 'text/plain';
+                    const media = { mimeType, body: fs.createReadStream(file.path) };
+                    return drive.files.create({ 
+                        resource: { name: file.name, parents: [BACKUP_FOLDER_ID] }, 
+                        media, 
+                        fields: 'id' 
+                    });
+                });
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ Failed to backup ${file.name}: ${e.message}`);
+        }
+    }
+}
+
 
 async function sendEmailNotification(status, videoName, brand, details) {
     if (!process.env.EMAIL_USER) return;
@@ -237,6 +511,9 @@ function saveToLog(newData) {
     
     // Use Safe Save to prevent corruption
     safeSave(paths.log.ext, currentLog);
+    
+    // 🔄 Backup to Drive IMMEDIATELY after each video (non-blocking)
+    backupLogToDrive().catch(err => console.warn("   ⚠️ Async backup warning:", err.message));
 }
 
 async function markZoomComplete(meetingId, currentTopic, token) {
@@ -269,7 +546,7 @@ async function refreshClickUpCache() {
 
     console.log("   📥 Downloading ClickUp Database...");
     let allLiteTasks = [], page = 0, keepGoing = true;
-    let retryCount = 0; // New Counter
+    let syncCompleted = false; // Track if sync finished successfully
     
     while (keepGoing) {
         try {
@@ -279,6 +556,7 @@ async function refreshClickUpCache() {
             
             if (!res.data.tasks || res.data.tasks.length === 0) {
                 console.log(`\n      ✅ Database synced! (${allLiteTasks.length} tasks total)`);
+                syncCompleted = true; // ✅ Mark as successfully completed
                 keepGoing = false;
             } else {
                 allLiteTasks = allLiteTasks.concat(res.data.tasks.map(t => ({ 
@@ -288,24 +566,27 @@ async function refreshClickUpCache() {
                 })));
                 process.stdout.write(`      Page ${page} loaded... (${allLiteTasks.length} tasks)\r`);
                 page++;
-                retryCount = 0; 
             }
         } catch (e) { 
-            
             const isNetworkError = e.code === 'ECONNRESET' || e.code === 'ENOTFOUND' || e.code === 'ETIMEDOUT' || e.code === 'ECONNABORTED';
             
             if (isNetworkError || (e.response && e.response.status >= 500)) {
-                retryCount++;
-                console.error(`\n      ⚠️ Network Blip (Page ${page}). Retrying in 5s... (Attempt ${retryCount})`);
+                console.error(`\n      ⚠️ Network Blip (Page ${page}). Retrying in 5s...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
-                
+                // ♾️ Infinite retries - no try limit!
             } else {
                 console.error(`\n      ❌ Fatal Error fetching ClickUp Page ${page}: ${e.message}`);
                 keepGoing = false; 
             }
         }
     }
-    CLICKUP_CACHE = allLiteTasks;
+    
+    // ✅ ONLY update cache if sync completed successfully
+    if (syncCompleted) {
+        CLICKUP_CACHE = allLiteTasks;
+    } else {
+        console.warn(`      ⚠️ ClickUp sync was incomplete. Keeping previous cache (${CLICKUP_CACHE.length} tasks).`);
+    }
 }
 
 function findFolderLinksInMemory(brandName) {
@@ -383,8 +664,11 @@ async function uploadToDrive(filePath, fileName, folderId) {
     oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
     if (!fs.existsSync(filePath)) throw new Error(`CRITICAL: File not found at ${filePath}.`);
-    const res = await drive.files.create({ resource: { name: fileName, parents: [folderId] }, media: { mimeType: 'video/mp4', body: fs.createReadStream(filePath) }, fields: 'id', supportsAllDrives: true });
-    return res.data;
+    // ⚠️ CRITICAL: Must re-create stream inside the retry logic or it fails on 2nd try
+    return await fetchWithRetry(() => {
+        const media = { mimeType: 'video/mp4', body: fs.createReadStream(filePath) };
+        return drive.files.create({ resource: { name: fileName, parents: [folderId] }, media, fields: 'id', supportsAllDrives: true });
+    }).then(res => res.data);
 }
 
 async function checkZoom() {
@@ -440,8 +724,24 @@ async function checkZoom() {
                                         emailLinksDetail = `📂 Folder: https://drive.google.com/drive/folders/${subFolderId}`;
                                     } catch (e) { console.error(`      ❌ Folder Error: ${e.message}`); continue; }
                                 }
+                            } else if (meeting.topic.includes("1:1")) {
+                                // 🛡️ NEW 1:1 LOGIC
+                                if (ONE_ON_ONE_FOLDERS[user.email]) {
+                                    console.log(`   🚀 1:1 Video: "${meeting.topic}"`);
+                                    try {
+                                        const subFolderId = await createDriveFolder(meeting.topic, ONE_ON_ONE_FOLDERS[user.email]);
+                                        links = { internalFolderId: subFolderId, memberFolderId: subFolderId };
+                                        isSalesEquation = true; // Tells the bot to skip ClickUp and just upload to Drive
+                                        brand = "1:1 Session";
+                                        emailLinksDetail = `📂 Folder: https://drive.google.com/drive/folders/${subFolderId}`;
+                                    } catch (e) { console.error(`      ❌ Folder Error: ${e.message}`); continue; }
+                                } else {
+                                    // Not on the approved 1:1 list? Ignore it.
+                                    shouldSkipForever = true;
+                                }
                             } else {
-                                if (IGNORE_TOPICS.some(ignored => meeting.topic.includes(ignored)) || meeting.topic.includes("1:1")) shouldSkipForever = true;
+                                // 📦 STANDARD BRAND VIDEOS
+                                if (IGNORE_TOPICS.some(ignored => meeting.topic.includes(ignored))) shouldSkipForever = true;
                                 else {
                                     const nameParts = meeting.topic.split(' x ');
                                     if (nameParts.length < 2) shouldSkipForever = true; 
@@ -490,7 +790,16 @@ async function checkZoom() {
                                 let fileExt = file.file_type === 'MP4' ? '.mp4' : (file.file_type === 'M4A' ? '.m4a' : (file.file_type === 'CHAT' ? '.txt' : `.${file.file_extension.toLowerCase()}`));
                                 let finalFileName = `${meeting.topic.replace(/[^a-zA-Z0-9 \-\.]/g, '').trim()} - ${niceDate.replace(/[^a-zA-Z0-9 \-\.]/g, '')}${fileExt}`;
                                 const tempPath = path.join(TEMP_DIR, finalFileName);
-                                let targetFolder = (!isSalesEquation && file.file_type === 'MP4' && user.email !== 'travis@ecommerceequation.com.au') ? links.memberFolderId : links.internalFolderId;
+                                // Default everything to the Internal Folder
+                                let targetFolder = links.internalFolderId;
+
+                                // ONLY change it to the Member Folder if ALL of these are true:
+                                // 1. It is NOT a sales video
+                                // 2. The file is an MP4
+                                // 3. The user's email is NOT in the internal-only list
+                                if (!isSalesEquation && file.file_type === 'MP4' && !INTERNAL_ONLY_EMAILS.includes(user.email)) {
+                                    targetFolder = links.memberFolderId;
+                                }
 
                                 if (await checkFileExistsInDrive(finalFileName, targetFolder)) {
                                     console.log(`      ⏩ Exists: "${finalFileName}"`);
@@ -511,8 +820,9 @@ async function checkZoom() {
                                 let lastKnownError = "Unknown network drop";
                                 
                                 for(let attempt = 1; attempt <= 3; attempt++) {
+                                    let writer = null;
                                     try {
-                                        const writer = fs.createWriteStream(tempPath);
+                                        writer = fs.createWriteStream(tempPath);
                                         const streamRes = await axios({ 
                                             url: `${file.download_url}?access_token=${token}`, 
                                             method: 'GET', 
@@ -524,12 +834,18 @@ async function checkZoom() {
                                         await new Promise((resolve, reject) => { writer.on('finish', resolve); writer.on('error', reject); });
                                         
                                         const stats = fs.statSync(tempPath);
-                                        if (!isTextFile && file.file_size > 0 && stats.size !== file.file_size) {
-                                            throw new Error(`File size mismatch. Expected: ${file.file_size}, Got: ${stats.size}`);
+                                        // Check file size with tolerance (allow 1% difference or 1MB, whichever is larger)
+                                        if (!isTextFile && file.file_size > 0) {
+                                            const tolerance = Math.max(file.file_size * 0.01, 1024 * 1024); // 1% or 1MB
+                                            const sizeDiff = Math.abs(stats.size - file.file_size);
+                                            if (sizeDiff > tolerance) {
+                                                throw new Error(`File size mismatch. Expected: ${file.file_size}, Got: ${stats.size}, Difference: ${sizeDiff} bytes`);
+                                            }
                                         }
                                         downloadSuccess = true;
                                         break; 
                                     } catch (dlErr) {
+                                        if (writer) writer.destroy();
                                         lastKnownError = dlErr.message || dlErr.code || "Unknown network drop";
                                         console.log(`      ⚠️ Download cut off (${attempt}/3). Reason: ${lastKnownError}. Retrying...`);
                                         if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); 
@@ -584,6 +900,10 @@ async function checkZoom() {
 (async () => {
     console.log("🚀 Starting Server...");
     await syncLogsWithDrive();
+    await syncConfigWithDrive();
+    await syncCredentialsFromDrive(); // Sync secrets, tokens, credentials
+    await backupConfigToDrive(); // Ensure local config is backed up after sync
+    await backupCredentialsToDrive(); // Ensure credentials are backed up
     await refreshClickUpCache(); 
     const dumpPath = path.join(writableFolder, 'clickup_brain_dump.txt');
     fs.writeFileSync(dumpPath, CLICKUP_CACHE.map(t => t.n).join('\n'));

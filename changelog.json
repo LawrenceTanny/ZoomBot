@@ -1,6 +1,13 @@
 [
+    {
+  "version": "v2.2.5",
+  "date": "September 01, 2026",
+  "changes": [
+    "Updated zoom token secret token to fix webhook verification issues."
+  ]
+  },
   {
-  "version": "v2.2.0",
+  "version": "v2.2.2",
   "date": "September 01, 2026",
   "changes": [
     "Fixed a bug for updating app_config.json version number in the app's UI, ensuring that the displayed version accurately reflects the current configuration version.",

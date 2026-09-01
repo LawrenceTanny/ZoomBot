@@ -26,11 +26,22 @@ const paths = {
 };
 
 ['secrets', 'config', 'log', 'token'].forEach(key => {
-    if (fs.existsSync(paths[key].int) && !fs.existsSync(paths[key].ext)) {
-        try {
-            fs.copyFileSync(paths[key].int, paths[key].ext);
-            console.log(`✅ BRIDGE: Installed ${key} to safe folder.`);
-        } catch (e) { console.error(`❌ Failed to copy ${key}:`, e.message); }
+    if (fs.existsSync(paths[key].int)) {
+        if (!fs.existsSync(paths[key].ext)) {
+            try {
+                fs.copyFileSync(paths[key].int, paths[key].ext);
+                console.log(`✅ BRIDGE: Installed ${key} to safe folder.`);
+            } catch (e) { console.error(`❌ Failed to copy ${key}:`, e.message); }
+        } else {
+            try {
+                const intStat = fs.statSync(paths[key].int);
+                const extStat = fs.statSync(paths[key].ext);
+                if (intStat.mtimeMs > extStat.mtimeMs) {
+                    fs.copyFileSync(paths[key].int, paths[key].ext);
+                    console.log(`✅ BRIDGE: Updated ${key} in safe folder from local project.`);
+                }
+            } catch (e) { /* ignore stat errors */ }
+        }
     }
 });
 
@@ -97,8 +108,18 @@ async function fetchWithRetry(operation, retries = 3) {
             return await operation();
         } catch (err) {
             if (i === retries - 1) throw err; 
-            const googleError = err.response && err.response.data && err.response.data.error ? err.response.data.error.message : err.message;
-            console.log(`      ⚠️ API Hiccup (${i + 1}/${retries}). Reason: ${googleError}`);
+            // Better error message extraction
+            let errorMsg = "Unknown error";
+            if (err.response?.data?.error?.message) {
+                errorMsg = err.response.data.error.message;
+            } else if (err.response?.data?.error) {
+                errorMsg = typeof err.response.data.error === 'string' ? err.response.data.error : JSON.stringify(err.response.data.error);
+            } else if (err.message) {
+                errorMsg = err.message;
+            } else if (err.response?.status) {
+                errorMsg = `HTTP ${err.response.status}: ${err.response.statusText || 'Unknown'}`;
+            }
+            console.log(`      ⚠️ API Hiccup (${i + 1}/${retries}). Reason: ${errorMsg}`);
             await delay(2000); 
         }
     }
@@ -488,19 +509,51 @@ async function sendEmailNotification(status, videoName, brand, details) {
     try { await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodedMessage } }); } catch (e) { console.error("   ❌ Failed to send email:", e.message); }
 }
 
+let cachedServerToken = null;
+
 async function getZoomAccessToken() {
-    if (!fs.existsSync(paths.token.ext)) throw new Error("❌ No Token Found! (Run Setup First)");
-    let tokenData = JSON.parse(fs.readFileSync(paths.token.ext));
+    // 1. Server-to-Server OAuth (if ZOOM_ACCOUNT_ID is configured)
+    if (process.env.ZOOM_ACCOUNT_ID) {
+        if (cachedServerToken && Date.now() < cachedServerToken.expires_at) {
+            return cachedServerToken.access_token;
+        }
+        console.log('   🔄 Requesting Server-to-Server Zoom Access Token...');
+        const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
+        const res = await fetchWithRetry(() => axios.post(
+            `https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${process.env.ZOOM_ACCOUNT_ID}`,
+            null,
+            { headers: { 'Authorization': `Basic ${credentials}` } }
+        ));
+        cachedServerToken = {
+            access_token: res.data.access_token,
+            expires_at: Date.now() + (res.data.expires_in * 1000) - 5000
+        };
+        return cachedServerToken.access_token;
+    }
+
+    // 2. User-managed OAuth via zoom_token.json
+    const tokenFile = fs.existsSync(paths.token.ext) ? paths.token.ext : paths.token.int;
+    if (!fs.existsSync(tokenFile)) {
+        throw new Error("❌ No zoom_token.json found! Please run: npm run auth:zoom to authenticate.");
+    }
+    let tokenData = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
     
     if (Date.now() >= tokenData.expires_at) {
         console.log('   🔄 Refreshing Zoom Token...');
         const credentials = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
         
-        // 🛡️ Added fetchWithRetry here
-        const res = await fetchWithRetry(() => axios.post('https://zoom.us/oauth/token', querystring.stringify({ grant_type: 'refresh_token', refresh_token: tokenData.refresh_token }), { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/x-www-form-urlencoded' } }));
-        
-        tokenData = { access_token: res.data.access_token, refresh_token: res.data.refresh_token, expires_at: Date.now() + (res.data.expires_in * 1000) - 5000 };
-        fs.writeFileSync(paths.token.ext, JSON.stringify(tokenData));
+        try {
+            const res = await axios.post('https://zoom.us/oauth/token', querystring.stringify({ grant_type: 'refresh_token', refresh_token: tokenData.refresh_token }), { headers: { 'Authorization': `Basic ${credentials}`, 'Content-Type': 'application/x-www-form-urlencoded' } });
+            tokenData = { access_token: res.data.access_token, refresh_token: res.data.refresh_token, expires_at: Date.now() + (res.data.expires_in * 1000) - 5000 };
+            safeSave(paths.token.ext, tokenData);
+            if (fs.existsSync(paths.token.int)) safeSave(paths.token.int, tokenData);
+        } catch (err) {
+            const reason = err.response?.data?.reason || err.response?.data?.error || err.message;
+            if (reason === 'invalid_grant' || reason === 'Invalid refresh token') {
+                throw new Error("❌ Zoom refresh token has expired (>90 days) or is invalid. Please run: npm run auth:zoom (or node zoom_auth.js) to re-authenticate Zoom!");
+            }
+            throw err;
+        }
     }
     return tokenData.access_token;
 }

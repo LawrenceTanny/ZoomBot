@@ -15,3 +15,5 @@ package-lock.json
 brandfinder.js
 checker.js
 auth.js
+.gitignore
+zoom_auth.js

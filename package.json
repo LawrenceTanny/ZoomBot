@@ -11,6 +11,8 @@
   "license": "ISC",
   "scripts": {
     "start": "electron .",
+    "auth:zoom": "node zoom_auth.js",
+    "auth:google": "node auth.js",
     "dist": "electron-builder",
     "publish": "electron-builder --publish always",
     "dist:win": "electron-builder --win",

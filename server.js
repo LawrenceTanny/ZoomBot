@@ -211,10 +211,10 @@ async function syncConfigWithDrive() {
     } catch (e) { console.error("      ⚠️ Config Sync Failed:", e.message); }
 }
 
-// ☁️ SYNC CREDENTIALS FROM DRIVE
+// ☁️ SYNC CREDENTIALS FROM DRIVE (Only if local doesn't exist)
 async function syncCredentialsFromDrive() {
     if (!BACKUP_FOLDER_ID) return;
-    console.log("   ☁️ Syncing: Downloading credentials from Google Drive...");
+    console.log("   ☁️ Syncing: Checking credentials on Google Drive...");
     const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
     oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
@@ -227,6 +227,12 @@ async function syncCredentialsFromDrive() {
     ];
 
     for (const file of filesToSync) {
+        // ONLY download if local file doesn't exist
+        if (fs.existsSync(file.path)) {
+            console.log(`      ℹ️ ${file.name} exists locally. Skipping sync.`);
+            continue;
+        }
+
         try {
             const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${file.name}' and trashed = false`;
             const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
@@ -241,14 +247,14 @@ async function syncCredentialsFromDrive() {
                     download.data.on('end', resolve).on('error', reject).pipe(dest);
                 });
 
-                // Replace local file with downloaded version
+                // Copy downloaded file to local
                 if (fs.existsSync(destPath)) {
                     fs.copyFileSync(destPath, file.path);
                     fs.unlinkSync(destPath);
-                    console.log(`      ✅ ${file.name} synced`);
+                    console.log(`      ✅ ${file.name} downloaded from Drive`);
                 }
             } else {
-                console.log(`      ℹ️ ${file.name} not found on Drive. Keeping local version.`);
+                console.log(`      ℹ️ ${file.name} not found on Drive.`);
             }
         } catch (e) {
             console.warn(`      ⚠️ Failed to sync ${file.name}: ${e.message}`);
@@ -901,9 +907,7 @@ async function checkZoom() {
     console.log("🚀 Starting Server...");
     await syncLogsWithDrive();
     await syncConfigWithDrive();
-    await syncCredentialsFromDrive(); // Sync secrets, tokens, credentials
-    await backupConfigToDrive(); // Ensure local config is backed up after sync
-    await backupCredentialsToDrive(); // Ensure credentials are backed up
+    await syncCredentialsFromDrive(); // Sync secrets, tokens, credentials (download only if missing)
     await refreshClickUpCache(); 
     const dumpPath = path.join(writableFolder, 'clickup_brain_dump.txt');
     fs.writeFileSync(dumpPath, CLICKUP_CACHE.map(t => t.n).join('\n'));

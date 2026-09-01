@@ -1,5 +1,14 @@
 [
   {
+  "version": "v2.2.0",
+  "date": "September 01, 2026",
+  "changes": [
+    "Fixed a bug for updating app_config.json version number in the app's UI, ensuring that the displayed version accurately reflects the current configuration version.",
+    "Added a new feature to display the app_config.json version number in the app's UI, providing users with clear visibility of the configuration version they are currently using.",
+    "Implemented a new feature to automatically check for updates to the app_config.json file on startup, ensuring that users always have"  
+  ]
+  },
+  {
     "version": "v2.2.0",
     "date": "September 01, 2026",
     "changes": [

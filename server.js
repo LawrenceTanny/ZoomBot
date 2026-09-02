@@ -173,116 +173,6 @@ async function syncLogsWithDrive() {
     } catch (e) { console.error("      ⚠️ Sync Failed:", e.message); }
 }
 
-// ☁️ SYNC CONFIG WITH DRIVE
-async function syncConfigWithDrive() {
-    if (!BACKUP_FOLDER_ID) return;
-    console.log("   ☁️ Syncing: Checking config version on Google Drive...");
-    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
-    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    const fileName = "app_config.json"; // Changed: now downloads from shared folder
-
-    try {
-        const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
-        const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-
-        if (res.data.files.length > 0) {
-            const fileId = res.data.files[0].id;
-            console.log("      ⬇️ Found app_config.json. Downloading...");
-            const destPath = path.join(TEMP_DIR, 'cloud_config.json');
-            const dest = fs.createWriteStream(destPath);
-            const download = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
-            
-            await new Promise((resolve, reject) => {
-                download.data.on('end', resolve).on('error', reject).pipe(dest);
-            });
-
-            // Compare versions
-            let localConfig = null;
-            let localVersion = "0.0.0";
-            if (fs.existsSync(paths.config.ext)) {
-                try { 
-                    localConfig = JSON.parse(fs.readFileSync(paths.config.ext, 'utf8'));
-                    localVersion = localConfig.version || "0.0.0";
-                } catch (e) { console.warn("      ⚠️ Error parsing local config:", e.message); }
-            }
-
-            let cloudConfig = null;
-            let cloudVersion = "0.0.0";
-            try { 
-                cloudConfig = JSON.parse(fs.readFileSync(destPath, 'utf8'));
-                cloudVersion = cloudConfig.version || "0.0.0";
-            } catch (e) { console.warn("      ⚠️ Error parsing cloud config:", e.message); }
-            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-
-            // Compare versions: if Drive is newer, update local with FULL config
-            if (cloudConfig && cloudVersion > localVersion) {
-                console.log(`      📦 Cloud config newer (${localVersion} → ${cloudVersion}). Updating...`);
-                safeSave(paths.config.ext, cloudConfig); // Save entire config, not just version
-                APP_CONFIG = cloudConfig; // Update in-memory config
-                console.log("      ✅ Config Updated!");
-            } else if (cloudVersion === localVersion) {
-                console.log("      ✅ Config already up-to-date (v" + localVersion + ")");
-            } else if (cloudConfig) {
-                console.log("      ℹ️ Local config is newer (v" + localVersion + " > v" + cloudVersion + ")");
-            }
-        } else {
-            console.log("      ℹ️ No app_config.json on Drive. Using local version.");
-        }
-    } catch (e) { console.error("      ⚠️ Config Sync Failed:", e.message); }
-}
-
-// ☁️ SYNC CREDENTIALS FROM DRIVE (Only if local doesn't exist)
-async function syncCredentialsFromDrive() {
-    if (!BACKUP_FOLDER_ID) return;
-    console.log("   ☁️ Syncing: Checking credentials on Google Drive...");
-    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
-    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    
-    const filesToSync = [
-        { name: "secrets.env", path: paths.secrets.ext },
-        { name: "zoom_token.json", path: paths.token.ext },
-        { name: "google_credentials.json", path: path.join(writableFolder, 'google_credentials.json') },
-        { name: "oauth_credentials.json", path: path.join(writableFolder, 'oauth_credentials.json') }
-    ];
-
-    for (const file of filesToSync) {
-        // ONLY download if local file doesn't exist
-        if (fs.existsSync(file.path)) {
-            console.log(`      ℹ️ ${file.name} exists locally. Skipping sync.`);
-            continue;
-        }
-
-        try {
-            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${file.name}' and trashed = false`;
-            const res = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-
-            if (res.data.files.length > 0) {
-                const fileId = res.data.files[0].id;
-                const destPath = path.join(TEMP_DIR, file.name);
-                const dest = fs.createWriteStream(destPath);
-                const download = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
-                
-                await new Promise((resolve, reject) => {
-                    download.data.on('end', resolve).on('error', reject).pipe(dest);
-                });
-
-                // Copy downloaded file to local
-                if (fs.existsSync(destPath)) {
-                    fs.copyFileSync(destPath, file.path);
-                    fs.unlinkSync(destPath);
-                    console.log(`      ✅ ${file.name} downloaded from Drive`);
-                }
-            } else {
-                console.log(`      ℹ️ ${file.name} not found on Drive.`);
-            }
-        } catch (e) {
-            console.warn(`      ⚠️ Failed to sync ${file.name}: ${e.message}`);
-        }
-    }
-}
-
 
 async function backupLogToDrive() {
     if (!fs.existsSync(paths.log.ext) || !BACKUP_FOLDER_ID) return;
@@ -380,110 +270,6 @@ async function backupLogToDrive() {
         console.error(`   ❌ Backup Failed after 3 attempts. Last error: ${lastError}`);
     }
 }
-
-// 🔧 BACKUP CONFIG TO DRIVE
-async function backupConfigToDrive() {
-    if (!fs.existsSync(paths.config.ext) || !BACKUP_FOLDER_ID) return;
-    
-    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
-    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    const fileName = "app_config.json"; // Changed: now backs up to shared folder
-
-    let backupSuccess = false;
-    let lastError = null;
-    
-    // Retry up to 2 times if config backup fails
-    for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${fileName}' and trashed = false`;
-            const listRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-            
-            let fileId = listRes.data.files?.length > 0 ? listRes.data.files[0].id : null;
-            
-            if (fileId) {
-                // UPDATE existing config
-                await fetchWithRetry(() => {
-                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.config.ext) };
-                    return drive.files.update({ fileId, media });
-                });
-                console.log(`      ✅ app_config.json backed up to Drive`);
-            } else {
-                // CREATE new config backup
-                await fetchWithRetry(() => {
-                    const media = { mimeType: 'application/json', body: fs.createReadStream(paths.config.ext) };
-                    return drive.files.create({ 
-                        resource: { name: fileName, parents: [BACKUP_FOLDER_ID] }, 
-                        media, 
-                        fields: 'id' 
-                    });
-                });
-                console.log("      ✅ app_config.json backed up to Drive (new)");
-            }
-            
-            backupSuccess = true;
-            break;
-        } catch (e) {
-            lastError = e.message;
-            console.warn(`   ⚠️ Config backup attempt ${attempt}/2 failed. Retrying...`);
-            await delay(2000);
-        }
-    }
-    
-    if (!backupSuccess) {
-        console.warn(`   ⚠️ Config backup skipped: ${lastError}`);
-    }
-}
-
-// 🔄 BACKUP CREDENTIALS TO DRIVE
-async function backupCredentialsToDrive() {
-    if (!BACKUP_FOLDER_ID) return;
-    
-    const oauth2Client = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, "http://localhost");
-    oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    
-    const filesToBackup = [
-        { name: "secrets.env", path: paths.secrets.ext },
-        { name: "zoom_token.json", path: paths.token.ext },
-        { name: "google_credentials.json", path: path.join(writableFolder, 'google_credentials.json') },
-        { name: "oauth_credentials.json", path: path.join(writableFolder, 'oauth_credentials.json') }
-    ];
-
-    for (const file of filesToBackup) {
-        if (!fs.existsSync(file.path)) continue;
-        
-        try {
-            const q = `'${BACKUP_FOLDER_ID}' in parents and name = '${file.name}' and trashed = false`;
-            const listRes = await fetchWithRetry(() => drive.files.list({ q, fields: 'files(id)' }));
-            
-            let fileId = listRes.data.files?.length > 0 ? listRes.data.files[0].id : null;
-            
-            if (fileId) {
-                // UPDATE existing file
-                await fetchWithRetry(() => {
-                    const mimeType = file.name.endsWith('.json') ? 'application/json' : 'text/plain';
-                    const media = { mimeType, body: fs.createReadStream(file.path) };
-                    return drive.files.update({ fileId, media });
-                });
-            } else {
-                // CREATE new file
-                await fetchWithRetry(() => {
-                    const mimeType = file.name.endsWith('.json') ? 'application/json' : 'text/plain';
-                    const media = { mimeType, body: fs.createReadStream(file.path) };
-                    return drive.files.create({ 
-                        resource: { name: file.name, parents: [BACKUP_FOLDER_ID] }, 
-                        media, 
-                        fields: 'id' 
-                    });
-                });
-            }
-        } catch (e) {
-            console.warn(`   ⚠️ Failed to backup ${file.name}: ${e.message}`);
-        }
-    }
-}
-
 
 async function sendEmailNotification(status, videoName, brand, details) {
     if (!process.env.EMAIL_USER) return;
@@ -772,7 +558,12 @@ async function checkZoom() {
                             let links = null, brand = "", isSalesEquation = false, shouldSkipForever = false, emailLinksDetail = "";
 
                             if (SALES_TEAM_FOLDERS[user.email]) {
-                                if (!meeting.topic.includes(' x ') || !meeting.topic.includes('EE Scale Session')) shouldSkipForever = true; 
+                                const topicLower = meeting.topic.toLowerCase();
+                                const isSalesPattern = meeting.topic.includes(' x ') && (
+                                    topicLower.includes('ecommerce equation') || 
+                                    topicLower.includes('ee scale session')
+                                );
+                                if (!isSalesPattern) shouldSkipForever = true; 
                                 else {
                                     console.log(`   🚀 Sales Video: "${meeting.topic}"`);
                                     try {
@@ -800,7 +591,16 @@ async function checkZoom() {
                                 }
                             } else {
                                 // 📦 STANDARD BRAND VIDEOS
-                                if (IGNORE_TOPICS.some(ignored => meeting.topic.includes(ignored))) shouldSkipForever = true;
+                                const shouldIgnoreTopic = IGNORE_TOPICS.some(ignored => {
+                                    if (ignored.toLowerCase() === "ecommerce equation") {
+                                        // Only ignore if it's an internal meeting without ' x ', not "Ecommerce Equation x Brand"
+                                        return meeting.topic.trim().toLowerCase() === "ecommerce equation" || 
+                                               meeting.topic.trim().toLowerCase().startsWith("ecommerce equation zoom");
+                                    }
+                                    return meeting.topic.toLowerCase().includes(ignored.toLowerCase());
+                                });
+
+                                if (shouldIgnoreTopic) shouldSkipForever = true;
                                 else {
                                     const nameParts = meeting.topic.split(' x ');
                                     if (nameParts.length < 2) shouldSkipForever = true; 
@@ -959,8 +759,6 @@ async function checkZoom() {
 (async () => {
     console.log("🚀 Starting Server...");
     await syncLogsWithDrive();
-    await syncConfigWithDrive();
-    await syncCredentialsFromDrive(); // Sync secrets, tokens, credentials (download only if missing)
     await refreshClickUpCache(); 
     const dumpPath = path.join(writableFolder, 'clickup_brain_dump.txt');
     fs.writeFileSync(dumpPath, CLICKUP_CACHE.map(t => t.n).join('\n'));

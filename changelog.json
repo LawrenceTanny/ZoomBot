@@ -1,4 +1,12 @@
 [
+      {
+  "version": "v3.1.0",
+  "date": "September 02, 2026",
+  "changes": [
+    "Removed auto sync credentials feature to prevent accidental overwriting of credentials and ensure that users have full control over their authentication settings.",
+    "Fixed the template for uploads"
+  ]
+  },
     {
   "version": "v3.0.0",
   "date": "September 01, 2026",

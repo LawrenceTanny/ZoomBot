@@ -77,7 +77,6 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
 // Mapped from JSON
 const SALES_TEAM_FOLDERS = APP_CONFIG.sales_team_folders || {};
-const ONE_ON_ONE_FOLDERS = APP_CONFIG["1:1_team_folders"] || {};
 const INTERNAL_ONLY_EMAILS = APP_CONFIG.internal_only_folders || [];
 const IGNORE_EMAILS = APP_CONFIG.ignore_emails || [];
 const IGNORE_TOPICS = APP_CONFIG.ignore_topics || [];
@@ -574,21 +573,6 @@ async function checkZoom() {
                                         emailLinksDetail = `📂 Folder: https://drive.google.com/drive/folders/${subFolderId}`;
                                     } catch (e) { console.error(`      ❌ Folder Error: ${e.message}`); continue; }
                                 }
-                            } else if (meeting.topic.includes("1:1")) {
-                                // 🛡️ NEW 1:1 LOGIC
-                                if (ONE_ON_ONE_FOLDERS[user.email]) {
-                                    console.log(`   🚀 1:1 Video: "${meeting.topic}"`);
-                                    try {
-                                        const subFolderId = await createDriveFolder(meeting.topic, ONE_ON_ONE_FOLDERS[user.email]);
-                                        links = { internalFolderId: subFolderId, memberFolderId: subFolderId };
-                                        isSalesEquation = true; // Tells the bot to skip ClickUp and just upload to Drive
-                                        brand = "1:1 Session";
-                                        emailLinksDetail = `📂 Folder: https://drive.google.com/drive/folders/${subFolderId}`;
-                                    } catch (e) { console.error(`      ❌ Folder Error: ${e.message}`); continue; }
-                                } else {
-                                    // Not on the approved 1:1 list? Ignore it.
-                                    shouldSkipForever = true;
-                                }
                             } else {
                                 // 📦 STANDARD BRAND VIDEOS
                                 const shouldIgnoreTopic = IGNORE_TOPICS.some(ignored => {
@@ -605,11 +589,13 @@ async function checkZoom() {
                                     const nameParts = meeting.topic.split(' x ');
                                     if (nameParts.length < 2) shouldSkipForever = true; 
                                     else {
-                                        const left = nameParts[0].trim(), right = nameParts[1].split('-')[0].trim();
+                                        const cleanTag = (str) => str.replace(/\b1:1\b|\(1:1\)|\b1-1\b/gi, '').trim();
+                                        const left = cleanTag(nameParts[0]);
+                                        const right = cleanTag(nameParts[1].split('-')[0]);
                                         const linksLeft = findFolderLinksInMemory(left);
                                         const linksRight = findFolderLinksInMemory(right);
 
-                                        // NEW LOGIC: Prioritize the side that actually contains a Google Drive Folder ID
+                                        // Prioritize the side that actually contains a Google Drive Folder ID
                                         if (linksRight && linksRight.internalFolderId) { 
                                             brand = right; 
                                             links = linksRight; 
@@ -619,8 +605,7 @@ async function checkZoom() {
                                             links = linksLeft; 
                                         }
                                         else { 
-                                            // If both fail, default to logging the right side (the actual brand name)
-                                            brand = right; 
+                                            brand = right || left; 
                                             links = null; 
                                         }
 
